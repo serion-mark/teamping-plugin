@@ -1,0 +1,31 @@
+{
+  "name": "teamping",
+  "description": "Collaboration hooks for Teamping — when a session opens it shows your tasks and roadmap, and it keeps work from going unrecorded. Pick an automation level (Lv0–Lv3) at install. 세션을 열면 팀핑(내 할일·로드맵) 상황을 자동으로 보여주고, 기록 누락을 막아주는 협업 훅. 설치 시 자동화 세기(Lv0~Lv3)를 고른다.",
+  "version": "0.2.11",
+  "author": {
+    "name": "Serion"
+  },
+  "homepage": "https://teamping.dev",
+  "repository": "https://github.com/serion-mark/teamping-plugin",
+  "keywords": [
+    "teamping",
+    "collaboration",
+    "automation",
+    "hooks"
+  ],
+  "userConfig": {
+    "automation_level": {
+      "type": "string",
+      "title": "Automation level · 자동화 세기",
+      "description": "lv0=off / lv1=manual (just remind me) / lv2=auto-read (show status when a session opens) / lv3=active (lv2 + recording reminders). lv0=끔 / lv1=수동(팀핑 확인해) / lv2=자동읽기(세션 열면 상황 표시) / lv3=적극(lv2+기록 리마인더)",
+      "default": "lv2",
+      "required": true
+    },
+    "channel_id": {
+      "type": "string",
+      "title": "Teamping channel ID · 팀핑 채널 ID",
+      "description": "The channel (project) to read status from. Leave it empty to see only your own tasks across the whole workspace, with the roadmap omitted. 상황을 읽어올 채널(프로젝트) ID. 비우면 org 전체 '내 할일'만 본다(로드맵 생략).",
+      "required": false
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/session-context.sh\"",
+            "timeout": 10,
+            "env": {
+              "TEAMPING_LEVEL": "${CLAUDE_PLUGIN_OPTION_AUTOMATION_LEVEL}",
+              "TEAMPING_CHANNEL": "${CLAUDE_PLUGIN_OPTION_CHANNEL_ID}"
+            }
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/record-reminder.sh\"",
+            "timeout": 5,
+            "env": {
+              "TEAMPING_LEVEL": "${CLAUDE_PLUGIN_OPTION_AUTOMATION_LEVEL}"
+            }
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/pretooluse-lock.sh\"",
+            "timeout": 5,
+            "env": {
+              "TEAMPING_LEVEL": "${CLAUDE_PLUGIN_OPTION_AUTOMATION_LEVEL}"
+            }
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/sessionend-lock.sh\"",
+            "timeout": 5,
+            "env": {
+              "TEAMPING_LEVEL": "${CLAUDE_PLUGIN_OPTION_AUTOMATION_LEVEL}"
+            }
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/posttooluse-observe.sh\"",
+            "timeout": 5,
+            "env": {
+              "TEAMPING_LEVEL": "${CLAUDE_PLUGIN_OPTION_AUTOMATION_LEVEL}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

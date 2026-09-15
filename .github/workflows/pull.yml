@@ -1,0 +1,92 @@
+# 공개 저장소(serion-mark/teamping-plugin)에서 도는 워크플로. 원본은 제품 저장소의
+# ops/plugin-public-repo/pull.yml 이고, publish.sh 가 로컬에서 돌 때 이 파일을 공개 저장소의
+# .github/workflows/pull.yml 로 복사한다(CI 자신은 이 파일을 못 고친다 — GITHUB_TOKEN 권한).
+#
+# 하는 일: 제품 저장소(비공개)를 읽기 전용 배포 키로 받아 publish.sh 를 돌린다.
+#   버전이 같으면 아무것도 안 하고, 다르면 조립 결과를 커밋·태그·푸시한다.
+#
+# 시크릿 PRODUCT_REPO_DEPLOY_KEY: 제품 저장소 serion-mark/teamping 에 「읽기 전용」으로 등록한
+#   배포 키의 비공개 절반. 등록은 제품 저장소 admin 이 한다. 없으면 이 워크플로는 경고만 남기고
+#   끝난다 — 그동안은 사람이 로컬에서 publish.sh 를 돌린다.
+#
+# ⚠️ 공개 저장소는 60일 동안 활동이 없으면 예약 실행이 자동으로 꺼진다(GitHub 규칙).
+#    그래서 수동 실행(workflow_dispatch)을 함께 둔다. 버전을 올린 PR 을 머지한 뒤
+#    `gh workflow run pull.yml -R serion-mark/teamping-plugin` 한 줄로 바로 집을 수 있다.
+name: Pull plugin from product repo
+
+on:
+  schedule:
+    # 하루 한 번(19:17 UTC = 04:17 KST). 정각은 GitHub 전체가 붐벼 지연·누락이 생기므로 어긋나게 둔다.
+    #
+    # ⭐ 왜 하루 한 번인가 (2026-09-09 실측): plugin/ 은 54일 동안 **10일**만 바뀌었다
+    #    (릴리스 11건). 10분마다 돌면 같은 기간에 7,776번 돌아 11번 일한다 — 약 700번에 한 번이다.
+    #    게다가 매번 제품 저장소를 받으므로 필요 없는 복제가 하루 144회였다.
+    #    고객 쪽도 급하지 않다: `plugin update` 는 고객이 손으로 치는 것이라 공개 저장소가
+    #    10분 신선한지 하루 신선한지가 거의 차이가 없다.
+    #    급할 때는 아래 수동 실행으로 즉시 집는다 — 그쪽이 정문이고 예약은 안전망이다.
+    #
+    # ⚠️ 하루 1회는 유지해야 한다. 공개 저장소에 60일간 활동이 없으면 GitHub 이 예약 실행을 끈다.
+    - cron: "17 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pull-plugin
+  cancel-in-progress: false
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 공개 저장소(자기 자신) 받기
+        uses: actions/checkout@v4
+        with:
+          path: public
+          fetch-depth: 0
+
+      - name: 제품 저장소 받기 (읽기 전용 배포 키)
+        # ⚠️ shell: bash 를 명시해야 pipefail 이 켜진다. 기본값은 `bash -e {0}` 라서
+        #    아래 `curl … | jq …` 의 curl 이 실패해도 파이프 전체가 0 으로 끝나고 다음 줄로 넘어간다
+        #    (2026-09-08 적대검증 실측). 지금은 ssh 가 닫힌 쪽으로 실패하지만, 원인이 엉뚱하게 보인다.
+        shell: bash
+        env:
+          KEY: ${{ secrets.PRODUCT_REPO_DEPLOY_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::warning::PRODUCT_REPO_DEPLOY_KEY 가 없다 — 키가 붙기 전까지는 사람이 로컬에서 publish.sh 를 돌린다"
+            exit 0
+          fi
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          # GitHub 의 호스트 키는 TLS 로 보호되는 공식 API 에서 받는다(ssh-keyscan 보다 안전).
+          curl -fsS https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com \(.)"' >> ~/.ssh/known_hosts
+          # ⭐ 발행에 필요한 것만 받는다 (2026-09-09 실측: 전체 313파일 11.0MB → 24파일 0.16MB).
+          #    받던 11MB 안에 docs 6.7MB(전략 문서·핸드오프)와 app 4MB(서버 소스 전부)가 들어
+          #    있었고 발행에는 한 바이트도 안 쓰였다. 이 작업의 목적이 「제품 저장소를 통째로
+          #    복제하지 않게 하는 것」이었는데 고객 쪽만 이루고 우리 CI 는 그대로였다.
+          #    ⚠️ 이것은 경계가 아니라 노출 줄이기다 — 배포 키 자체는 저장소 전체를 읽을 수 있다.
+          #    ⚠️ `--no-cone` 을 쓰는 이유: 조립이 `app/package.json` 한 파일을 제품 저장소
+          #       표시로 쓴다. cone 모드는 폴더 단위라 그 한 파일만 가져올 수 없다.
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes"
+          git clone -q --depth 1 --branch master --filter=blob:none --sparse \
+            git@github.com:serion-mark/teamping.git product
+          git -C product sparse-checkout set --no-cone \
+            /plugin/ /.claude-plugin/ /ops/plugin-public-repo/ /app/package.json
+
+      - name: 발행 (버전이 다를 때만)
+        shell: bash
+        run: |
+          [ -d product ] || { echo "제품 저장소가 없어 건너뜀"; exit 0; }
+          git -C public config user.name "teamping-plugin-bot"
+          git -C public config user.email "plugin-bot@teamping.dev"
+          SKIP_WORKFLOW_SYNC=1 bash product/ops/plugin-public-repo/publish.sh product public
+
+      - name: 배포 키 지우기
+        # 실패해도 돈다. 지금 러너는 작업이 끝나면 사라지지만, self-hosted 로 바꾸는 날
+        # 이 단계가 없으면 키가 기계에 남는다. 그 하루를 위해 지금 넣는다.
+        if: always()
+        shell: bash
+        run: rm -f ~/.ssh/deploy_key

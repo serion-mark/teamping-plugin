@@ -1,0 +1,17 @@
+{
+  "name": "teamping",
+  "owner": {
+    "name": "Serion"
+  },
+  "metadata": {
+    "description": "Teamping plugin marketplace — file locks and session briefing for Claude Code. 팀핑 플러그인 마켓플레이스(파일 락 · 세션 브리핑). Generated from the Teamping product repo."
+  },
+  "plugins": [
+    {
+      "name": "teamping",
+      "source": "./plugin",
+      "description": "Collaboration hooks for Teamping — shows your tasks and roadmap when a session opens and keeps work from going unrecorded. Automation level (Lv0–Lv3) is chosen at install. 세션을 열면 팀핑(내 할일·로드맵) 상황을 자동 표시하고 기록 누락을 막는 협업 훅. 설치 시 자동화 세기(Lv0~Lv3) 선택.",
+      "version": "0.2.11"
+    }
+  ]
+}
