@@ -142,7 +142,18 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 CREDS="$(bash "$(dirname "${BASH_SOURCE[0]}")/resolve-token.sh")"
 TOKEN="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_TOKEN=//p')"
 BASE="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_BASE=//p')"
-[ -n "$TOKEN" ] || exit 0
+if [ -z "$TOKEN" ]; then
+  # ⭐ 22-1 「안 이어졌다」 ③ — 열쇠가 아예 없으면 서버에 못 물으니 여기서 세션당 한 번 말한다(전엔 말없이 통과).
+  #    표식은 $TMPDIR(흔적 0) · 이름에 세션 id 만 · systemMessage 는 사람에게 보이는 줄이고 허용 결정은 그대로다.
+  #    ⚠️ node 로 가기 전에 끝나므로 아래 JS 의 noticeOnce 가 아니라 여기에 있어야 한다(스텁 실측: JS 쪽은 죽은 코드였다).
+  _sid="$(printf '%s' "$INPUT" | node -e 'let r="";process.stdin.on("data",c=>r+=c).on("end",()=>{let s="nosess";try{s=String(JSON.parse(r).session_id||"nosess")}catch{}process.stdout.write(s.replace(/[^A-Za-z0-9_-]/g,"_"))})' 2>/dev/null || echo nosess)"
+  _mark="${TMPDIR:-/tmp}/teamping-notice-${_sid}-no-token-env"
+  if [ ! -e "$_mark" ]; then
+    : > "$_mark" 2>/dev/null || true
+    printf '%s' '{"systemMessage":"⚠️ 팀핑: 이 편집은 잠기지 않았습니다 — 연결 열쇠(토큰)를 찾지 못했습니다(.mcp.json 또는 ~/.claude.json 의 teamping 항목). 마이페이지에서 열쇠를 받아 연결하세요."}'
+  fi
+  exit 0
+fi
 
 # 레포 식별자 — git이 없거나 remote가 없으면 디렉토리명으로 폴백
 REPO_KEY="$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || true)"
@@ -198,15 +209,31 @@ if (input?.tool_name === "Bash") {
 
 const token = process.env.TEAMPING_TOKEN ?? "";
 const base = process.env.TEAMPING_BASE || "https://teamping.dev";
-if (!token) passThrough();
+
+// ⭐ 22-1 「안 이어졌다」 — 서버가 통과시킨 이유(notice)를 **세션당 한 번** 사람에게 보인다.
+//    훅은 fail-open 이 맞지만 안 막았다는 사실은 보여야 한다(에릭 3부). 표식 파일 = 세션 id + 이유 → 같은 이유는 한 번만.
+//    ⚠️ 표식은 $TMPDIR 에 둔다(사용자 홈·프로젝트에 흔적 0). 이름엔 세션 id 와 이유만 — 토큰·경로는 안 들어간다.
+const os = await import("node:os"); // fs·path 는 위에서 이미 들여왔다 — 다시 선언하면 스크립트 전체가 조용히 죽는다(실측)
+const noticeOnce = (why, text) => {
+  if (!text) return;
+  const sid = String(input?.session_id ?? "nosess").replace(/[^A-Za-z0-9_-]/g, "_");
+  const mark = path.join(os.tmpdir(), `teamping-notice-${sid}-${String(why).replace(/[^A-Za-z0-9_-]/g, "_")}`);
+  try { if (fs.existsSync(mark)) return; fs.writeFileSync(mark, ""); } catch { /* 표식을 못 쓰면 매번 보이는 쪽이 낫다 */ }
+  // systemMessage = 사람에게 보이는 줄(모델 컨텍스트가 아니다). 허용 결정은 그대로다.
+  process.stdout.write(JSON.stringify({ systemMessage: String(text) }));
+};
+
+if (!token) passThrough(); // 열쇠 없음은 위 bash 껍데기가 이미 말하고 끝냈다 — 여기는 도달하지 않는다
 
 try {
   const res = await fetch(`${base}/api/hooks/pretooluse`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    // 22-1 — 언어를 보낸다(Opus 2차 R9: 안 보내니 서버의 en 문장이 플러그인 경로에선 도달 불가였다). TEAMPING_LANG 없으면 ko.
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "accept-language": process.env.TEAMPING_LANG || "ko" },
     body: JSON.stringify({
       session_id: input.session_id,
       agent: "claude-code",
+      locale: process.env.TEAMPING_LANG || "ko",
       tool_name: input.tool_name,
       file_path: paths[0],       // 옛 서버와도 말이 통하게 첫 경로는 그대로 둔다
       file_paths: paths,         // Bash 한 줄이 여러 파일을 쓴다
@@ -228,6 +255,9 @@ try {
         permissionDecisionReason: data.reason,
       },
     }));
+  } else if (typeof data?.notice === "string" && data.notice) {
+    // 통과인데 서버가 「왜 안 잠갔나」를 말했다(레포 미연결 · 볼 수 없는 프로젝트 · 열쇠 무효/권한 없음 · 요청 과다) → 한 번 보인다.
+    noticeOnce(data?.why ?? "allow", data.notice);
   }
 } catch { /* 서버 미응답·타임아웃 → 통과 */ }
 process.exit(0);
