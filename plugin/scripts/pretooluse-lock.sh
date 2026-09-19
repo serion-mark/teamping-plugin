@@ -150,7 +150,15 @@ if [ -z "$TOKEN" ]; then
   _mark="${TMPDIR:-/tmp}/teamping-notice-${_sid}-no-token-env"
   if [ ! -e "$_mark" ]; then
     : > "$_mark" 2>/dev/null || true
-    printf '%s' '{"systemMessage":"⚠️ 팀핑: 이 편집은 잠기지 않았습니다 — 연결 열쇠(토큰)를 찾지 못했습니다(.mcp.json 또는 ~/.claude.json 의 teamping 항목). 마이페이지에서 열쇠를 받아 연결하세요."}'
+    # i18n-exempt: 열쇠가 없어 서버를 부를 수가 없다 — 이 자리만 셸이 스스로 말한다(영문 형제를 나란히 둔다).
+    # ⛔ 여기는 **서버에 못 물어보는 유일한 자리**다 — 그래서 문구가 셸에 있다.
+    #    그래도 언어는 가른다(원칙). 다른 모든 문장은 서버 사전에서 온다.
+    if [ "${TEAMPING_LANG:-ko}" = "en" ]; then
+      printf '%s' '{"systemMessage":"⚠️ Teamping: this edit was not locked — no connection key found (the teamping entry in .mcp.json or ~/.claude.json). Issue a key on My page and connect."}'
+    else
+      # i18n-exempt: 열쇠가 없어 서버를 부를 수가 없다 — 바로 위에 영문 형제가 있다.
+      printf '%s' '{"systemMessage":"⚠️ 팀핑: 이 편집은 잠기지 않았습니다 — 연결 열쇠(토큰)를 찾지 못했습니다(.mcp.json 또는 ~/.claude.json 의 teamping 항목). 마이페이지에서 열쇠를 받아 연결하세요."}'
+    fi
   fi
   exit 0
 fi
@@ -242,10 +250,16 @@ try {
     signal: AbortSignal.timeout(2000),
   });
   const data = await res.json();
+  // i18n-exempt: 서버 응답의 **숫자**를 세는 자리라 대응하는 서버 문장이 없다(영문 형제를 나란히 둔다).
   // ⭐ 서버가 "검사 못 한 경로가 있다"고 하면 숨기지 않는다 — 아무도 안 읽으면 그 필드는 죽은 코드다
   //   (2차 교차검수 BLOCK-N3: 커밋 메시지가 "고지한다"고 썼는데 읽는 쪽이 0곳이었다).
   if (Number(data?.truncated) > 0) {
-    process.stderr.write(`팀핑: 경로 ${data.truncated}개는 확인하지 못했습니다(커밋 전 게이트가 다시 봅니다).\n`);
+    process.stderr.write(
+      (process.env.TEAMPING_LANG || "ko") === "en"
+        ? `Teamping: ${data.truncated} path(s) could not be checked (the pre-commit gate will look again).\n`
+        // i18n-exempt: 서버 응답의 숫자를 세는 자리라 대응하는 서버 문장이 없다 — 바로 위에 영문 형제가 있다.
+        : `팀핑: 경로 ${data.truncated}개는 확인하지 못했습니다(커밋 전 게이트가 다시 봅니다).\n`,
+    );
   }
   if (data?.decision === "deny" && typeof data.reason === "string") {
     process.stdout.write(JSON.stringify({

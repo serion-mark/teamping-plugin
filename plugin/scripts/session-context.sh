@@ -33,6 +33,24 @@ case "$LEVEL" in
   lv0 | lv1) exit 0 ;; # 끔·수동은 세션 시작에 조용
 esac
 
+# ⭐ 브리핑 언어 — 설치 옵션(auto/ko/en). 값이 없거나 치환되지 않은 템플릿이면 auto 로 읽는다
+#    (CLI 설치는 옵션을 안 물어 값이 빌 수 있다 — 자동화 세기와 같은 이유).
+#    auto = 셸 로케일($LC_ALL → $LC_MESSAGES → $LANG)을 따르고, 못 읽으면 ko.
+#    ⛔ 이 줄이 없던 동안 **설치만 한 영문 사용자는 늘 ko 를 보냈다** — 서버가 아무리 영문을 만들어도
+#       닿지 않았다(적대검증 BLOCK). 셸이 읽기만 하고 아무도 심지 않는 값이었다.
+case "${TEAMPING_LANG:-auto}" in
+  ko | en) ;;
+  *)
+    _loc="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
+    case "$_loc" in
+      ko* | *_KR* | *-KR*) TEAMPING_LANG=ko ;;
+      "" | C | C.* | POSIX) TEAMPING_LANG=ko ;;
+      *) TEAMPING_LANG=en ;;
+    esac
+    ;;
+esac
+export TEAMPING_LANG
+
 command -v jq >/dev/null 2>&1 || exit 0
 command -v curl >/dev/null 2>&1 || exit 0
 
@@ -83,12 +101,29 @@ trap 'rm -f "$HDR"' EXIT
 chmod 600 "$HDR" 2>/dev/null || true
 printf 'Authorization: Bearer %s\n' "$TOKEN" > "$HDR"
 
-JSON=$(curl -s --max-time 5 -H @"$HDR" -H "accept-language: ${TEAMPING_LANG:-ko}" "$URL" 2>/dev/null) || exit 0
+# ⭐ 시간대 — 브리핑 시각은 서버가 찍는다. 서버는 UTC 로 도니
+#    이 값이 없으면 한국 사람에게 9시간 어긋난 시각을 보인다. date +%z(+0900) → 분(540).
+#    ⚠️ 10# 를 붙인다 — 08·09 는 8진수로 읽혀 산술이 실패한다(이 저장소가 버전 비교에서 한 번 밟은 함정).
+TZRAW="$(date +%z 2>/dev/null)"
+TZOFF=0
+case "$TZRAW" in
+  [+-][0-9][0-9][0-9][0-9])
+    _hh="${TZRAW#?}"; _hh="${_hh%??}"
+    _mm="${TZRAW#???}"
+    _v=$(( 10#$_hh * 60 + 10#$_mm ))
+    case "$TZRAW" in -*) TZOFF=$(( 0 - _v )) ;; *) TZOFF=$_v ;; esac
+    ;;
+esac
+JSON=$(curl -s --max-time 5 -H @"$HDR" -H "accept-language: ${TEAMPING_LANG:-ko}" -H "x-teamping-tz-offset: $TZOFF" "$URL" 2>/dev/null) || exit 0
 # ⭐ 22-1 「안 이어졌다」 — 열쇠가 무효/권한 없음(401·403)이면 전엔 말없이 끝났다(조용한 자리 ⑥ 「내보내진 사람의 열쇠 — 본인은 모름」).
 #    서버가 notice 를 실어 주므로 그 한 줄만 보이고 끝낸다.
 if ! echo "$JSON" | jq -e '.user' >/dev/null 2>&1; then
   # `nz` = 아래 요약과 같은 펜스 무해화(Opus 2차 R10 — 이 줄이 펜스 밖에 찍히므로 레포명이 섞이는 날 주입 통로가 된다).
-  echo "$JSON" | jq -r 'def nz: tostring | gsub("(?i)<(?=/?\\s*teamping_reports)"; "＜"); select(.notice != null) | "🏓 팀핑: 브리핑을 못 받았습니다 — \(.notice|nz)"' 2>/dev/null
+  # ⛔ **접두사를 붙이지 않는다** — `notice` 는 서버가 만든 **완성된 한 문장**이다(편집 훅 `pretooluse-lock.sh` 도 그대로 찍는다).
+  #    23-5 S5 가 브리핑 전용 문장(`silent_b_*`)을 넣자 같은 말이 두 번 나왔다(Opus 2차 BLOCK 1 · 실측):
+  #    「🏓 팀핑: 브리핑을 못 받았습니다 — ⚠️ 팀핑: 브리핑을 못 받았습니다 — 관리자가 …」.
+  #    ⚠️ 그리고 이 접두사는 셸에 **한글 하드코딩**이라 `accept-language: en` 이어도 한글이 섞였다(절대규칙 위반).
+  echo "$JSON" | jq -r 'def nz: tostring | gsub("(?i)<(?=/?\\s*teamping_reports)"; "＜"); select(.notice != null) | (.notice|nz)' 2>/dev/null
   exit 0
 fi
 
@@ -109,6 +144,20 @@ if [ -n "$SESSION_ID" ]; then
     "$BASE/api/hooks/sessionstart" 2>/dev/null || true
 fi
 
+# ⭐ 브리핑 본문은 **서버가 만든다**. 전엔 아래 jq 가 만들었고, 그래서
+#    ①영문 사용자에게 본문이 100% 한글로 나갔고(절대규칙 위반) ②이 조립을 재는 시험이 0건이었으며
+#    ③서버가 보내 주는 칸 셋(잠긴 파일·닿지 않는 카드·범위)을 아무도 안 읽고 있었다.
+#    이제 글자는 전부 서버 사전(ko/en)에서 온다 — 여기서는 **찍기만 한다.**
+# ⚠️ `briefing` 이 없으면 **옛 서버**다(플러그인이 먼저 업데이트된 경우) → 아래 옛 조립으로 떨어진다.
+BRIEF="$(printf '%s' "$JSON" | jq -r '.briefing.text // empty' 2>/dev/null)"
+if [ -n "$BRIEF" ]; then
+  printf '%s\n' "$BRIEF"
+  exit 0
+fi
+
+# ── 옛 서버 폴백 ────────────────────────────────────────────────────
+# ⛔ 여기는 **더 늘리지 마라.** 새 줄은 서버 쪽 브리핑 조립기에 넣는다 —
+#    이 블록은 옛 서버와 말이 통하게 남겨 둔 것이고, 시험이 닿지 않는 자리다.
 # 요약. 채널을 지정하지 않으면 roadmap이 null이라 로드맵 섹션은 자동 생략된다.
 echo "$JSON" | jq -r '  # 불변식2·6 — 훅 stdout은 AI 세션 컨텍스트로 그대로 들어간다. MCP formatActivity가 untrustedBlock으로
   # 감싸는 것과 **같은 방어**를 여기서도 한다(안 하면 REST+훅이 그 격리를 통째로 건너뛰는 문이 된다).

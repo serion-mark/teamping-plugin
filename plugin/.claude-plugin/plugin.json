@@ -1,7 +1,7 @@
 {
   "name": "teamping",
   "description": "Collaboration hooks for Teamping — when a session opens it shows your tasks and roadmap, and it keeps work from going unrecorded. Pick an automation level (Lv0–Lv3) at install. 세션을 열면 팀핑(내 할일·로드맵) 상황을 자동으로 보여주고, 기록 누락을 막아주는 협업 훅. 설치 시 자동화 세기(Lv0~Lv3)를 고른다.",
-  "version": "0.2.12",
+  "version": "0.2.14",
   "author": {
     "name": "Serion"
   },
@@ -25,6 +25,13 @@
       "type": "string",
       "title": "Teamping channel ID · 팀핑 채널 ID",
       "description": "The channel (project) to read status from. Leave it empty to see only your own tasks across the whole workspace, with the roadmap omitted. 상황을 읽어올 채널(프로젝트) ID. 비우면 org 전체 '내 할일'만 본다(로드맵 생략).",
+      "required": false
+    },
+    "language": {
+      "type": "string",
+      "title": "Briefing language · 브리핑 언어",
+      "description": "Language for the session briefing and hook messages. auto = follow your shell locale ($LC_ALL/$LANG), falling back to Korean. 세션 브리핑과 훅 안내의 언어. auto = 셸 로케일($LC_ALL/$LANG)을 따르고, 못 읽으면 한국어.",
+      "default": "auto",
       "required": false
     }
   }
