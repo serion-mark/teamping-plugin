@@ -143,6 +143,27 @@ printf '%s' "$INPUT" | nohup node -e '
       const resp = ev.tool_response;
       const respBytes = typeof resp === "string" ? resp.length : resp == null ? 0 : JSON.stringify(resp).length;
 
+      // ⭐ 0.2.15 — 팀핑 **집기 도구**면 어느 카드를 집었는지 함께 싣는다. 서버는 그동안 「이 창이 방금 집기 도구를
+      //    불렀다」는 사실만 받아 10초 창·도구 이름으로 **추정**했다(세션 핀). 카드 id 가 오면 정확 대조다.
+      //   · claim_work / claim_file → tool_input.manifestId (사람이 준 인자 그대로)
+      //   · submit_manifest(claim:"me") → 응답 첫 줄 「✅ … (id <uuid>)」 의 uuid (서버가 만든 새 카드)
+      //   보내는 것은 uuid 하나뿐 — 형식이 아니면 안 보낸다. 값의 진위(이 채널 카드인가 · 지금 담당자가 나인가)는 서버가 판정한다.
+      const CLAIM_TOOL = /^mcp__.+__(claim_work|claim_file|submit_manifest)$/;
+      const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+      let claimedManifestId = null;
+      const cm = CLAIM_TOOL.exec(tool);
+      if (cm) {
+        const ti = ev.tool_input && typeof ev.tool_input === "object" ? ev.tool_input : {};
+        let cand = null;
+        if (cm[1] !== "submit_manifest") cand = ti.manifestId;
+        else if (ti.claim === "me") {
+          const text = typeof resp === "string" ? resp : resp == null ? "" : JSON.stringify(resp);
+          const mm = /\(id ([0-9a-f-]{36})\)/.exec(text);
+          cand = mm ? mm[1] : null;
+        }
+        if (typeof cand === "string" && UUID.test(cand)) claimedManifestId = cand;
+      }
+
       // ⭐ 16-5 — 이 도구를 부린 게 사람인가 서브에이전트인가.
       //   부모와 서브에이전트는 **같은 session_id를 쓴다**(실측). 세션으로는 영원히 안 갈라지고,
       //   그래서 검증 에이전트가 판 61건이 전부 사람 이름으로 찍혔다.
@@ -174,6 +195,8 @@ printf '%s' "$INPUT" | nohup node -e '
           changed,
           response_bytes: respBytes,
           subagent_id: subagentId,
+          // 0.2.15 — 집기 도구가 아니면 null(키는 항상 보내 서버 시험이 「없음」과 「옛 플러그인」을 가를 수 있게).
+          claimed_manifest_id: claimedManifestId,
         }),
         signal: AbortSignal.timeout(4000),
       }).catch(() => {});
