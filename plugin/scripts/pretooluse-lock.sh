@@ -168,6 +168,7 @@ REPO_KEY="$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || true)"
 [ -n "$REPO_KEY" ] || REPO_KEY="$(basename "$PROJECT_DIR")"
 
 export TEAMPING_TOKEN="$TOKEN" TEAMPING_BASE="$BASE" TEAMPING_PROJECT_DIR="$PROJECT_DIR" TEAMPING_REPO_KEY="$REPO_KEY"
+. "$(dirname "$0")/window-id.sh" # 0.2.17 — 이 창의 식별자(TEAMPING_WINDOW_ID) · 서버가 자기 창의 잠금만 풀게
 # 추출기는 **파일로 따로** 둔다(인라인 복사본이 아니라) — 시험이 실제로 도는 그 코드를 재도록.
 export TEAMPING_EXTRACTOR="$(dirname "${BASH_SOURCE[0]}")/bash-write-targets.mjs"
 
@@ -240,6 +241,7 @@ try {
     headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "accept-language": process.env.TEAMPING_LANG || "ko" },
     body: JSON.stringify({
       session_id: input.session_id,
+      window_id: process.env.TEAMPING_WINDOW_ID || undefined, // 0.2.17 — 어느 창이 잡았나(옛 서버는 무시)
       agent: "claude-code",
       locale: process.env.TEAMPING_LANG || "ko",
       tool_name: input.tool_name,

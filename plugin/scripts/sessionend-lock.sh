@@ -31,6 +31,7 @@ TOKEN="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_TOKEN=//p')"
 BASE="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_BASE=//p')"
 [ -n "$TOKEN" ] || exit 0
 export TEAMPING_TOKEN="$TOKEN" TEAMPING_BASE="$BASE"
+. "$(dirname "$0")/window-id.sh" # 0.2.17 — 이 창의 식별자 · 서버가 이 창의 잠금만 푼다
 
 node --input-type=module -e '
 const fs = await import("node:fs");
@@ -44,7 +45,9 @@ try {
   await fetch(`${base}/api/hooks/sessionend`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify({ session_id: input.session_id }),
+    // sent_at(0.2.16): 「보낸 시각」 — 같은 세션 id 로 재개(--resume)한 뒤 이 종료가 늦게·두 번 도착해도
+    //   서버가 재개 후 잡은 락은 풀지 않게(서버는 이 값을 좁히는 데만 쓴다 · 옛 서버는 무시).
+    body: JSON.stringify({ session_id: input.session_id, sent_at: new Date().toISOString(), window_id: process.env.TEAMPING_WINDOW_ID || undefined }),
     signal: AbortSignal.timeout(2000),
   });
 } catch { /* 통과 */ }

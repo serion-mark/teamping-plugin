@@ -134,13 +134,14 @@ fi
 # fail-open: 실패해도 브리핑은 그대로 나간다(&& true로 exit code를 삼킨다).
 SESSION_ID=$(printf '%s' "${HOOK_INPUT:-}" | jq -r '.session_id // empty' 2>/dev/null)
 if [ -n "$SESSION_ID" ]; then
+  . "$(dirname "$0")/window-id.sh" # 0.2.17 — 이 창의 식별자(마지막으로 앉은 창으로 기록)
   REPO_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
   REPO_KEY="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null || true)"
   [ -n "$REPO_KEY" ] || REPO_KEY="$(basename "$REPO_DIR")"
   # 위와 같은 이유로 헤더는 파일로 넘긴다(토큰이 argv에 들어가면 ps에 보인다).
   curl -s --max-time 3 -o /dev/null \
     -H @"$HDR" -H "content-type: application/json" \
-    -d "$(jq -nc --arg s "$SESSION_ID" --arg r "$REPO_KEY" '{session_id:$s, agent:"claude-code", repo_key:$r}')" \
+    -d "$(jq -nc --arg s "$SESSION_ID" --arg r "$REPO_KEY" --arg w "${TEAMPING_WINDOW_ID:-}" '{session_id:$s, agent:"claude-code", repo_key:$r} + (if $w == "" then {} else {window_id:$w} end)')" \
     "$BASE/api/hooks/sessionstart" 2>/dev/null || true
 fi
 
