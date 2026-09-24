@@ -72,6 +72,8 @@ printf '%s' "$INPUT" | nohup node -e '
       // 파일을 바꿀 수 있는 도구에서만 git을 본다.
       const MUTATORS = /^(Edit|Write|MultiEdit|NotebookEdit|Bash)$/;
       let changed = [];
+      // ⭐ 0.2.18(25-2 S2) — 이번 Bash 로 **새로 만든 커밋 번호**. 없으면 빈 배열(키는 늘 보낸다 — 서버가 옛 플러그인과 가른다).
+      let commits = [];
       if (MUTATORS.test(tool) && session) {
         let now = [];
         try {
@@ -117,8 +119,57 @@ printf '%s' "$INPUT" | nohup node -e '
         const key = crypto.createHash("sha256").update(`${dir}::${session}`).digest("hex").slice(0, 32);
         const stateDir = path.join(os.homedir(), ".cache", "teamping", "observe");
         const stateFile = path.join(stateDir, `${key}.json`);
-        let prev = null;
-        try { prev = JSON.parse(fs.readFileSync(stateFile, "utf8")); } catch { prev = null; }
+        let prevState = null;
+        try { prevState = JSON.parse(fs.readFileSync(stateFile, "utf8")); } catch { prevState = null; }
+        // 0.2.17 까지 상태 파일은 경로 배열이었다 — 그 모양도 읽는다(업데이트 직후 첫 도구가 기준선을 잃지 않게).
+        const prev = Array.isArray(prevState) ? prevState : prevState && Array.isArray(prevState.files) ? prevState.files : null;
+        // ⛔ 상태 파일에서 읽은 값은 git **인자**로 들어간다 — 40자 16진수가 아니면 버린다(`--output=…` 같은 값이 옵션으로 읽히지 않게).
+        const prevHeadRaw = prevState && !Array.isArray(prevState) && typeof prevState.head === "string" ? prevState.head : "";
+        const prevHead = /^[0-9a-f]{40}$/.test(prevHeadRaw) ? prevHeadRaw : null;
+        // 직전 관측 시각(초) — 이보다 **먼저 만들어진** 커밋은 이번 명령이 만든 것이 아니다(병합·빨리감기로 들어온 옛 커밋).
+        const prevAt = prevState && !Array.isArray(prevState) && Number.isSafeInteger(prevState.at) ? prevState.at : null;
+        // ⭐ 커밋도 **git 에게 묻는다**(명령어 텍스트를 보지 않는다 — 위 머리말의 원칙). 지금 HEAD 를 적어 두고,
+        //    Bash 뒤에 앞으로 움직였으면 그 사이 커밋 중 **이 기계의 git 사용자가 만든 것**만 보낸다.
+        // 관측 시각은 HEAD 를 읽기 **직전**에 찍는다 — 끝에 찍으면 이 훅이 git 을 도는 사이 AI 가 만든 다음 커밋이
+        // 이번 HEAD 에도 안 들고 다음 창의 시각보다 앞서 조용히 사라진다(3라운드 결정적 재현).
+        const nowAt = Math.floor(Date.now() / 1000);
+        let head = null;
+        try {
+          head = execFileSync("git", ["-C", dir, "--no-optional-locks", "rev-parse", "HEAD"], { encoding: "utf8", timeout: 3000 }).trim();
+        } catch { head = null; }
+        if (!/^[0-9a-f]{40}$/.test(head || "")) head = null;
+        // ⭐ 「AI 가 만든 커밋」으로 좁히는 조건 — 이번 Bash 가 **커밋을 만드는 git 명령**이었을 때만(1차 BLOCK 실측:
+        //    사람이 다른 터미널에서 커밋한 뒤 AI 가 아무 Bash 나 돌리면 그 커밋이 「팀핑 자리에서 만든 것」으로 잡혔다 —
+        //    한 기계에선 사람과 AI 의 git 사용자가 같다). 텍스트만으로 판정하지 않는다: **명령(의도) AND HEAD 가 앞으로(결과)**
+        //    둘 다 맞아야 보낸다(위 머리말이 금지한 것은 텍스트 단독 판정). 명령 원문은 여전히 보내지 않는다.
+        //    ⚠️ 한계: 스크립트 안에서 커밋하는 경우(npm run release 등)는 놓친다 — 과소 신고 쪽으로 닫힌다(모르면 안 한다).
+        const cmd = ev.tool_input && typeof ev.tool_input.command === "string" ? ev.tool_input.command : "";
+        const COMMIT_CMD = /(^|[;&|(\s])git(\s+-[Cc]\s+\S+|\s+--?[\w.-]+(=\S+)?)*\s+(commit|merge|cherry-pick|rebase|revert|am)(?=\s|$|[;&|)])/;
+        if (tool === "Bash" && COMMIT_CMD.test(cmd) && prevHead && prevAt !== null && head && prevHead !== head) {
+          try {
+            // ① 앞으로만 — 브랜치 전환·reset·되감기는 「만든 것」이 아니다(조상이 아니면 git 이 0 이 아닌 값으로 끝나 throw).
+            execFileSync("git", ["-C", dir, "merge-base", "--is-ancestor", prevHead, head], { timeout: 3000, stdio: "ignore" });
+            // ② 이 기계의 git 사용자 — 비교에만 쓰고 **보내지 않는다**. 없으면 아무것도 안 보낸다(모르면 안 한다).
+            const me = execFileSync("git", ["-C", dir, "config", "user.email"], { encoding: "utf8", timeout: 3000 }).trim().toLowerCase();
+            if (me) {
+              const log = execFileSync("git", ["-C", dir, "--no-optional-locks", "log", "--format=%H%x09%ce%x09%ct", "--max-count=21", `${prevHead}..${head}`], {
+                encoding: "utf8", timeout: 3000, maxBuffer: 1 << 20,
+              });
+              const lines = log.split("\n").filter((l) => l.length > 0);
+              // ③ 20 개 넘게 한꺼번에 들어왔으면 pull·merge 로 받은 것 — 통째로 보내지 않는다.
+              //    ④ 커밋한 사람이 나인 것만 — AI 가 `git pull` 로 받아 온 동료 커밋이 「팀핑에서 만든 커밋」으로 둔갑하지 않게.
+              if (lines.length <= 20) {
+                commits = lines
+                  .map((l) => l.split("\t"))
+                  // ⑤ 커밋 시각이 직전 관측 뒤인 것만 — AI 가 사람의 브랜치를 병합·빨리감기하면 **그 사람의 옛 커밋**이
+                  //    「AI 가 만든 것」으로 잡혔다(Opus 2차 BLOCK · 실측 재현). rebase·cherry-pick 은 커밋 시각이 새로 찍혀 그대로 잡힌다.
+                  //    ⚠️ 한계: 직전 관측과 이번 명령 **사이에** 사람이 만든 커밋은 못 가른다(한 기계에선 사람과 AI 가 같은 git 사용자).
+                  .filter(([h, ce, ct]) => /^[0-9a-f]{40}$/.test(h || "") && (ce || "").trim().toLowerCase() === me && Number(ct) >= prevAt)
+                  .map(([h]) => h);
+              }
+            }
+          } catch { commits = []; }
+        }
         try {
           // ⚠️ mode를 명시한다 — 안 주면 프로세스 기본 umask로 0755/0644가 되어(적대검증 WARN·실측)
           //    **이 파일이 애초에 막으려던 것이 로컬 파일권한으로는 그대로 열린다.** 담긴 내용이
@@ -126,8 +177,11 @@ printf '%s' "$INPUT" | nohup node -e '
           //    ⚠️ mkdirSync의 mode도 기존 디렉토리엔 안 먹으므로 chmod로 되돌린다(형제 tok/과 같은 함정).
           fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
           try { fs.chmodSync(stateDir, 0o700); } catch {}
-          fs.writeFileSync(stateFile, JSON.stringify(now.slice(0, 500)), { mode: 0o600 });
-          try { fs.chmodSync(stateFile, 0o600); } catch {}
+          // 원자적 쓰기(tmp → rename) — 같은 세션의 병렬 도구가 반쯤 쓴 파일을 읽어 기준선을 잃지 않게(1차 WARN).
+          const tmp = `${stateFile}.${process.pid}.tmp`;
+          fs.writeFileSync(tmp, JSON.stringify({ files: now.slice(0, 500), head, at: nowAt }), { mode: 0o600 });
+          try { fs.chmodSync(tmp, 0o600); } catch {}
+          fs.renameSync(tmp, stateFile);
         } catch { /* 상태를 못 써도 관측은 계속한다(다음 번에 다시 기준선이 될 뿐) */ }
         if (prev === null) {
           // 첫 실행 = 기준선. "세션 시작 시점에 이미 있던 변경"을 이 도구가 한 일로 적지 않는다.
@@ -138,7 +192,7 @@ printf '%s' "$INPUT" | nohup node -e '
         }
       }
 
-      // ⚠️ 보내는 것: 도구 이름 · **이번에 새로 바뀐** 레포 상대경로 · 결과 크기.
+      // ⚠️ 보내는 것: 도구 이름 · **이번에 새로 바뀐** 레포 상대경로 · 결과 크기 · (0.2.18) 새 커밋 번호.
       //    명령어 원문·파일 본문·도구 출력·워킹트리 전량은 보내지 않는다.
       const resp = ev.tool_response;
       const respBytes = typeof resp === "string" ? resp.length : resp == null ? 0 : JSON.stringify(resp).length;
@@ -197,6 +251,8 @@ printf '%s' "$INPUT" | nohup node -e '
           subagent_id: subagentId,
           // 0.2.15 — 집기 도구가 아니면 null(키는 항상 보내 서버 시험이 「없음」과 「옛 플러그인」을 가를 수 있게).
           claimed_manifest_id: claimedManifestId,
+          // 0.2.18(25-2 S2) — 이번 Bash 로 이 기계의 git 사용자가 새로 만든 커밋 번호(0~20 · 번호만).
+          commits,
         }),
         signal: AbortSignal.timeout(4000),
       }).catch(() => {});
