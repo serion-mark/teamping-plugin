@@ -57,6 +57,7 @@ REPO_KEY="$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || true)"
 # ⭐ 여기서부터 백그라운드 — 훅이 붙잡는 시간은 위까지다(git·네트워크는 그쪽에서).
 #    ⚠️ setsid는 macOS에 없다(초판 주석이 거짓이었다·적대검증 W6). `&` + nohup 만으로 충분하다.
 export TEAMPING_TOKEN="$TOKEN" TEAMPING_BASE="$BASE" TEAMPING_PROJECT_DIR="$PROJECT_DIR" TEAMPING_REPO_KEY="$REPO_KEY"
+export TEAMPING_TREES="$(dirname "${BASH_SOURCE[0]}")/repo-trees.mjs" # 0.2.19 — 같은 레포의 작업 폴더 목록(단일 소스 · 락 훅과 같은 파일)
 printf '%s' "$INPUT" | nohup node -e '
   const fs = require("fs"), os = require("os"), path = require("path"), crypto = require("crypto");
   const { execFileSync } = require("child_process");
@@ -75,44 +76,47 @@ printf '%s' "$INPUT" | nohup node -e '
       // ⭐ 0.2.18(25-2 S2) — 이번 Bash 로 **새로 만든 커밋 번호**. 없으면 빈 배열(키는 늘 보낸다 — 서버가 옛 플러그인과 가른다).
       let commits = [];
       if (MUTATORS.test(tool) && session) {
-        let now = [];
-        try {
-          // ⭐⭐ 프로젝트 **밖** 파일이 새어나가지 않게 (락엔 있고 관측엔 없던 비대칭).
-          //   `git status --porcelain` 은 **레포 루트 기준**으로 답한다 — `-C dir` 를 줘도 그렇다.
-          //   그래서 프로젝트 폴더가 레포 루트가 아니면(모노레포 하위 패키지, 홈 디렉토리 자체가
-          //   git 레포인 경우) **프로젝트 밖 파일 이름이 그대로 딸려 나온다.**
-          //   실측 재현: 레포 루트에 `발명요지서.md`, 프로젝트가 `sub/` 일 때 그 파일명이 목록에 들어왔다.
-          //
-          //   ① pathspec `-- .` 로 **git이 애초에 프로젝트 밖을 안 뱉게** 한다(인자 하나·비용 0).
-          //   ② 남는 경로는 여전히 레포 루트 기준이라(`sub/x.ts`) 프로젝트 기준으로 바꾼다.
-          //      `data-boundary.md`가 *"프로젝트 기준 상대경로로 변환해서 보낸다"* 고 적어둔 것을
-          //      사실로 만드는 부분 — 우리 레포는 프로젝트=레포루트라 그동안 차이가 안 드러났다.
-          //   ③ 그래도 접두사 밖으로 나가는 경로는 **버린다**(이중 방어 — 락의 `startsWith("..")`와 같은 정신).
-          //   ⚠️ git을 한 번 더 부르지만 이 코드는 **백그라운드**(nohup … &)에서 돈다.
-          //      동기 구간이 아니라 지연 게이트(p95 +5ms)에 영향이 없다.
-          let prefix = "";
+        const statusOf = (base) => {
+          let now = [];
           try {
-            prefix = execFileSync("git", ["-C", dir, "--no-optional-locks", "rev-parse", "--show-prefix"], {
-              encoding: "utf8", timeout: 3000,
-            }).trim();
-          } catch { prefix = ""; }
+            // ⭐⭐ 프로젝트 **밖** 파일이 새어나가지 않게 (락엔 있고 관측엔 없던 비대칭).
+            //   `git status --porcelain` 은 **레포 루트 기준**으로 답한다 — `-C dir` 를 줘도 그렇다.
+            //   그래서 프로젝트 폴더가 레포 루트가 아니면(모노레포 하위 패키지, 홈 디렉토리 자체가
+            //   git 레포인 경우) **프로젝트 밖 파일 이름이 그대로 딸려 나온다.**
+            //   실측 재현: 레포 루트에 `발명요지서.md`, 프로젝트가 `sub/` 일 때 그 파일명이 목록에 들어왔다.
+            //
+            //   ① pathspec `-- .` 로 **git이 애초에 프로젝트 밖을 안 뱉게** 한다(인자 하나·비용 0).
+            //   ② 남는 경로는 여전히 레포 루트 기준이라(`sub/x.ts`) 프로젝트 기준으로 바꾼다.
+            //      `data-boundary.md`가 *"프로젝트 기준 상대경로로 변환해서 보낸다"* 고 적어둔 것을
+            //      사실로 만드는 부분 — 우리 레포는 프로젝트=레포루트라 그동안 차이가 안 드러났다.
+            //   ③ 그래도 접두사 밖으로 나가는 경로는 **버린다**(이중 방어 — 락의 `startsWith("..")`와 같은 정신).
+            //   ⚠️ git을 한 번 더 부르지만 이 코드는 **백그라운드**(nohup … &)에서 돈다.
+            //      동기 구간이 아니라 지연 게이트(p95 +5ms)에 영향이 없다.
+            let prefix = "";
+            try {
+              prefix = execFileSync("git", ["-C", base, "--no-optional-locks", "rev-parse", "--show-prefix"], {
+                encoding: "utf8", timeout: 3000,
+              }).trim();
+            } catch { prefix = ""; }
 
-          const out = execFileSync("git", ["-C", dir, "--no-optional-locks", "status", "--porcelain", "-z", "--", "."], {
-            encoding: "utf8", timeout: 3000, maxBuffer: 1 << 20,
-          });
-          // -z: NUL 구분. rename(R)은 "새경로\0옛경로" 두 항목으로 오므로 **뒤따르는 옛 경로를 건너뛴다**
-          // (적대검증 W1: 초판은 옛 경로에도 slice(3)을 먹여 훼손된 가짜 경로를 만들었다).
-          const parts = out.split("\0").filter((s) => s.length > 0);
-          for (let i = 0; i < parts.length; i++) {
-            const xy = parts[i].slice(0, 2);
-            const raw = parts[i].slice(3);
-            if (xy.includes("R") || xy.includes("C")) i++; // 다음 항목은 원본 경로 — 건너뛴다
-            if (!prefix) { now.push(raw); continue; }       // 프로젝트 = 레포 루트
-            if (!raw.startsWith(prefix)) continue;          // ③ 프로젝트 밖 → 버린다
-            const rel = raw.slice(prefix.length);
-            if (rel) now.push(rel);
-          }
-        } catch { now = []; }
+            const out = execFileSync("git", ["-C", base, "--no-optional-locks", "status", "--porcelain", "-z", "--", "."], {
+              encoding: "utf8", timeout: 3000, maxBuffer: 1 << 20,
+            });
+            // -z: NUL 구분. rename(R)은 "새경로\0옛경로" 두 항목으로 오므로 **뒤따르는 옛 경로를 건너뛴다**
+            // (적대검증 W1: 초판은 옛 경로에도 slice(3)을 먹여 훼손된 가짜 경로를 만들었다).
+            const parts = out.split("\0").filter((s) => s.length > 0);
+            for (let i = 0; i < parts.length; i++) {
+              const xy = parts[i].slice(0, 2);
+              const raw = parts[i].slice(3);
+              if (xy.includes("R") || xy.includes("C")) i++; // 다음 항목은 원본 경로 — 건너뛴다
+              if (!prefix) { now.push(raw); continue; }       // 프로젝트 = 레포 루트
+              if (!raw.startsWith(prefix)) continue;          // ③ 프로젝트 밖 → 버린다
+              const rel = raw.slice(prefix.length);
+              if (rel) now.push(rel);
+            }
+          } catch { now = []; }
+          return now;
+        };
 
         // ⭐ delta를 **여기서** 계산한다. 워킹트리 전량을 서버로 보내지 않는다(BLOCK-3).
         //    상태 파일은 프로젝트 **밖**(캐시)에 — 안에 두면 git status가 그걸 또 잡는다.
@@ -132,12 +136,6 @@ printf '%s' "$INPUT" | nohup node -e '
         //    Bash 뒤에 앞으로 움직였으면 그 사이 커밋 중 **이 기계의 git 사용자가 만든 것**만 보낸다.
         // 관측 시각은 HEAD 를 읽기 **직전**에 찍는다 — 끝에 찍으면 이 훅이 git 을 도는 사이 AI 가 만든 다음 커밋이
         // 이번 HEAD 에도 안 들고 다음 창의 시각보다 앞서 조용히 사라진다(3라운드 결정적 재현).
-        const nowAt = Math.floor(Date.now() / 1000);
-        let head = null;
-        try {
-          head = execFileSync("git", ["-C", dir, "--no-optional-locks", "rev-parse", "HEAD"], { encoding: "utf8", timeout: 3000 }).trim();
-        } catch { head = null; }
-        if (!/^[0-9a-f]{40}$/.test(head || "")) head = null;
         // ⭐ 「AI 가 만든 커밋」으로 좁히는 조건 — 이번 Bash 가 **커밋을 만드는 git 명령**이었을 때만(1차 BLOCK 실측:
         //    사람이 다른 터미널에서 커밋한 뒤 AI 가 아무 Bash 나 돌리면 그 커밋이 「팀핑 자리에서 만든 것」으로 잡혔다 —
         //    한 기계에선 사람과 AI 의 git 사용자가 같다). 텍스트만으로 판정하지 않는다: **명령(의도) AND HEAD 가 앞으로(결과)**
@@ -145,21 +143,22 @@ printf '%s' "$INPUT" | nohup node -e '
         //    ⚠️ 한계: 스크립트 안에서 커밋하는 경우(npm run release 등)는 놓친다 — 과소 신고 쪽으로 닫힌다(모르면 안 한다).
         const cmd = ev.tool_input && typeof ev.tool_input.command === "string" ? ev.tool_input.command : "";
         const COMMIT_CMD = /(^|[;&|(\s])git(\s+-[Cc]\s+\S+|\s+--?[\w.-]+(=\S+)?)*\s+(commit|merge|cherry-pick|rebase|revert|am)(?=\s|$|[;&|)])/;
-        if (tool === "Bash" && COMMIT_CMD.test(cmd) && prevHead && prevAt !== null && head && prevHead !== head) {
+        const commitsOf = (base, prevHead, head, prevAt) => {
+          if (!(tool === "Bash" && COMMIT_CMD.test(cmd) && prevHead && prevAt !== null && head && prevHead !== head)) return [];
           try {
             // ① 앞으로만 — 브랜치 전환·reset·되감기는 「만든 것」이 아니다(조상이 아니면 git 이 0 이 아닌 값으로 끝나 throw).
-            execFileSync("git", ["-C", dir, "merge-base", "--is-ancestor", prevHead, head], { timeout: 3000, stdio: "ignore" });
+            execFileSync("git", ["-C", base, "merge-base", "--is-ancestor", prevHead, head], { timeout: 3000, stdio: "ignore" });
             // ② 이 기계의 git 사용자 — 비교에만 쓰고 **보내지 않는다**. 없으면 아무것도 안 보낸다(모르면 안 한다).
-            const me = execFileSync("git", ["-C", dir, "config", "user.email"], { encoding: "utf8", timeout: 3000 }).trim().toLowerCase();
+            const me = execFileSync("git", ["-C", base, "config", "user.email"], { encoding: "utf8", timeout: 3000 }).trim().toLowerCase();
             if (me) {
-              const log = execFileSync("git", ["-C", dir, "--no-optional-locks", "log", "--format=%H%x09%ce%x09%ct", "--max-count=21", `${prevHead}..${head}`], {
+              const log = execFileSync("git", ["-C", base, "--no-optional-locks", "log", "--format=%H%x09%ce%x09%ct", "--max-count=21", `${prevHead}..${head}`], {
                 encoding: "utf8", timeout: 3000, maxBuffer: 1 << 20,
               });
               const lines = log.split("\n").filter((l) => l.length > 0);
               // ③ 20 개 넘게 한꺼번에 들어왔으면 pull·merge 로 받은 것 — 통째로 보내지 않는다.
               //    ④ 커밋한 사람이 나인 것만 — AI 가 `git pull` 로 받아 온 동료 커밋이 「팀핑에서 만든 커밋」으로 둔갑하지 않게.
               if (lines.length <= 20) {
-                commits = lines
+                return lines
                   .map((l) => l.split("\t"))
                   // ⑤ 커밋 시각이 직전 관측 뒤인 것만 — AI 가 사람의 브랜치를 병합·빨리감기하면 **그 사람의 옛 커밋**이
                   //    「AI 가 만든 것」으로 잡혔다(Opus 2차 BLOCK · 실측 재현). rebase·cherry-pick 은 커밋 시각이 새로 찍혀 그대로 잡힌다.
@@ -168,8 +167,134 @@ printf '%s' "$INPUT" | nohup node -e '
                   .map(([h]) => h);
               }
             }
-          } catch { commits = []; }
+          } catch { /* 모르면 안 한다 */ }
+          return [];
+        };
+
+        const nowAt = Math.floor(Date.now() / 1000);
+        let head = null;
+        try {
+          head = execFileSync("git", ["-C", dir, "--no-optional-locks", "rev-parse", "HEAD"], { encoding: "utf8", timeout: 3000 }).trim();
+        } catch { head = null; }
+        if (!/^[0-9a-f]{40}$/.test(head || "")) head = null;
+
+        // ⭐⭐ 0.2.19 — 같은 레포의 **다른 작업 폴더**(git worktree). 전엔 세션 폴더만 봐서 작업 폴더에서 만든 커밋이
+        //    「팀핑 밖」으로 찍혔다(레저 P1 · c99d538 실측). 목록·HEAD 는 git 한 번으로 함께 온다(repo-trees.mjs).
+        //    ⚠️ 모든 폴더를 보지 않는다 — **이번 도구가 건드린 폴더만**(Edit 은 그 파일의 폴더 · Bash 는 명령에 루트가 통째로
+        //    적힌 폴더와 cwd 의 폴더). 다른 창이 자기 작업 폴더에서 만든 커밋·편집을 이 창의 것으로 가져오지 않게.
+        //    HEAD 는 **모든 폴더**를 적어 둔다(추가 비용 0) — 그래야 처음 건드리는 폴더에서 바로 커밋해도 기준선이 있다.
+        let info = null;
+        let treesMod = null;
+        try {
+          treesMod = await import(process.env.TEAMPING_TREES);
+          info = treesMod.listRepoTrees(dir);
+        } catch { info = null; }
+        const others = [];
+        if (info) {
+          const touch = (t) => { if (t && t !== info.home && !others.includes(t)) others.push(t); };
+          const ti = ev.tool_input && typeof ev.tool_input === "object" ? ev.tool_input : {};
+          if (tool === "Bash") {
+            for (const t of treesMod.treesNamedIn(cmd, info)) touch(t);
+            touch(treesMod.treeOf(typeof ev.cwd === "string" ? ev.cwd : null, info));
+          } else {
+            touch(treesMod.treeOf(typeof ti.file_path === "string" ? ti.file_path : ti.notebook_path, info));
+          }
         }
+        const prevWt = prevState && !Array.isArray(prevState) && prevState.wt && typeof prevState.wt === "object" ? prevState.wt : {};
+        const wtChanged = [];
+        const wtCommits = [];
+        // 옛 기준선을 그대로 이어받는다(Edit 류는 다른 폴더의 기준선을 건드리지 않는다 — 아래).
+        const wt = {};
+        if (info) {
+          for (const t of info.trees) {
+            if (t === info.home) continue;
+            const old = prevWt[t.id] && typeof prevWt[t.id] === "object" ? prevWt[t.id] : null;
+            wt[t.id] = {
+              head: old && typeof old.head === "string" && /^[0-9a-f]{40}$/.test(old.head) ? old.head : null,
+              files: old && Array.isArray(old.files) ? old.files.filter((f) => typeof f === "string").slice(0, 500) : null,
+              // 기준선이 아직 없는 폴더에서 Edit 으로 이미 신고한 파일 — 같은 파일을 매번 다시 말하지 않게(아래).
+              edits: old && Array.isArray(old.edits) ? old.edits.filter((f) => typeof f === "string").slice(0, 500) : [],
+            };
+          }
+        }
+        if (info && tool !== "Bash") {
+          // ⭐⭐ Edit 류는 git 비교를 쓰지 않는다 — **도구가 고친 그 파일**이 곧 이 도구가 한 일이다.
+          //    2라운드 실측: git 비교로 풀었더니 ①연달아 Edit 하면 앞 훅이 뒤 파일을 기준선에 먼저 흡수해 **뒤 파일이 영영 빠졌고**
+          //    ②새 폴더 안 파일은 git 이 `app/newdir/` 로 접어 보여 이름이 안 맞았고 ③대소문자·링크로 부른 경로도 빠졌다.
+          //    같은 폴더의 다른 변경은 다른 창의 것일 수 있어 싣지 않는다. 그 폴더의 기준선에는 이 파일만 더한다
+          //    (다음 Bash 가 같은 파일을 두 번 싣지 않게). **다른 폴더의 기준선·HEAD 는 건드리지 않는다** — 건드리면
+          //    바로 앞 Bash 의 훅(백그라운드)이 읽기 전에 그 결과를 흡수해 버릴 수 있다.
+          const ti0 = ev.tool_input && typeof ev.tool_input === "object" ? ev.tool_input : {};
+          const hit = treesMod.resolveInTrees(typeof ti0.file_path === "string" ? ti0.file_path : ti0.notebook_path, info, null);
+          //    ⭐ 무엇을 말할지는 **git 에게 묻는다** — 그 작업 폴더 하나의 status 에서 이 파일을 덮는 항목(파일 자체 또는 git 이
+          //    접어 보인 새 폴더 `app/nd/`)을 찾는다. 세션 폴더(delta)가 쓰는 이름과 같아진다.
+          //    · 덮는 항목이 없다(원복·같은 내용·무시 파일) → 싣지 않고 기억에서 뺀다 — 다음 진짜 편집을 삼키지 않게
+          //      (4라운드 W-A: 기억만 믿자 원복 뒤 편집이 사라졌다).
+          //    · 이미 기억에 있다 → 싣지 않는다 — 이미 고치던 파일을 Edit 할 때마다 다시 말하지 않게(3라운드 W3 · 세션 폴더와 같은 말).
+          //    · 덮는 항목 **하나만** 기억에 더한다(다른 파일은 흡수하지 않는다 — 앞 Bash 훅의 몫을 가로채지 않게 · 2라운드).
+          //    기준선이 아직 없으면 edits 에 따로 기억한다 — 그걸 기준선으로 쓰면 다음 Bash 가 원래 있던 변경을 이 창의 것으로 싣는다(3라운드 V18).
+          if (hit && hit.tree !== info.home) {
+            const cur = wt[hit.tree.id];
+            if (cur) {
+              const base = info.prefix ? path.join(hit.tree.id, info.prefix) : hit.tree.id;
+              const entries = statusOf(base);
+              const cover = entries.find((e) => e === hit.rel || (e.endsWith("/") && hit.rel.startsWith(e)));
+              const key = Array.isArray(cur.files) ? "files" : "edits";
+              if (!cover) {
+                cur[key] = cur[key].filter((f) => f !== hit.rel);
+              } else if (!cur[key].includes(cover)) {
+                wtChanged.push(cover);
+                cur[key] = [...cur[key], cover].slice(0, 500);
+              }
+            }
+          }
+        } else if (info) {
+          // ⭐ 커밋 증거 — 이번 명령의 출력에서 `[브랜치 abc1234]` 모양으로 찍힌 번호만 모은다(commit·cherry-pick·revert 가 이렇게 찍는다).
+          //    번호가 **어디든** 있으면 인정하던 첫 처방은 `git -C <남의 폴더> log --oneline` · ff merge(`Updating a..b`) ·
+          //    우연한 16진수로 다른 창 커밋을 실었다(2라운드 실측 넷). 응답이 객체면 stdout 을 읽는다(실제 Bash 응답 모양).
+          const respRaw = ev.tool_response;
+          const respText = typeof respRaw === "string" ? respRaw
+            : respRaw && typeof respRaw === "object" ? [respRaw.stdout, respRaw.stderr].filter((x) => typeof x === "string").join("\n")
+            : "";
+          const made = [];
+          for (const m of respText.matchAll(/\[[^\]\n]*\s([0-9a-f]{4,40})\]/g)) made.push(m[1]);
+          // ⭐⭐ 기준선(files·head)은 Bash 마다 **모든 작업 폴더**에서 갱신하고, 싣는 것은 **이번에 건드린 폴더**에서만.
+          //    건드릴 때만 갱신하면 기준선이 낡아, 한참 뒤 그 폴더를 건드린 순간 그사이 다른 창이 한 미커밋 편집이
+          //    전부 이 창의 변경으로 실렸다(Opus 2차 WARN-2 · 전수 실측). 비용 = 폴더당 git status 한 번(백그라운드 · 폴더당 ≈ 11ms 실측).
+          //    ⚠️ 한계: 폴더 이름도 cwd 도 없는 Bash 쓰기(`npm run fmt` 가 옆 폴더를 고침)는 싣지 않는다 — 누가 했는지 모르면 안 한다.
+          for (const t of info.trees) {
+            if (t === info.home) continue;
+            const old = wt[t.id];
+            const base = info.prefix ? path.join(t.id, info.prefix) : t.id;
+            const files = statusOf(base);
+            if (others.includes(t)) {
+              // 이 폴더를 처음 보면 기준선만 — "이미 있던 변경"을 이 도구가 한 일로 적지 않는다(아래 세션 폴더와 같은 규칙).
+              if (old && Array.isArray(old.files)) {
+                const before = new Set(old.files);
+                // Edit 도 git 이 쓰는 이름(접힌 새 폴더 `app/nd/` 포함)으로 기억하므로 같은 이름끼리 비교된다(3라운드 W2 ·
+                // 접두사 규칙은 무시·삭제된 파일을 근거로 내 새 파일을 삼켜 뺐다 — 4라운드 W-B).
+                for (const f of files) if (!before.has(f)) wtChanged.push(f);
+              }
+              // ⭐⭐ 작업 폴더의 커밋은 **이번 명령의 출력에 그 커밋 번호가 찍혔을 때만** 싣는다(1차·보안 감사가 독립으로 BLOCK).
+              //    「명령에 폴더가 적혔나」만으로는 다른 창이 그 폴더에서 만든 커밋이 섞였다 — 내 `git -C <남의 폴더> commit` 이
+              //    변경 없음으로 실패해도, 커밋 메시지에 그 경로를 적기만 해도(실측 재현 둘). **글자가 아니라 결과가 증거**다
+              //    (출력은 여기서만 보고 보내지 않는다).
+              //    ⚠️ 한계(과소 신고 쪽으로 닫힌다 · 모르면 안 한다): 번호를 안 찍는 경우 — `commit -q` · 출력 버리기(`>/dev/null`) ·
+              //    rebase · am · `merge --no-ff`(「Merge made by…」) · 빨리감기 merge · 백그라운드 실행 · 출력이 잘린 경우.
+              //    세션 폴더(아래)는 0.2.18 규칙 그대로 둔다(같은 폴더를 여러 창이 나눠 쓰는 경우가 드물고, 바꾸면 옛 신고가 줄어든다).
+              for (const h of commitsOf(base, old ? old.head : null, t.head, prevAt)) {
+                if (made.some((abbr) => h.startsWith(abbr))) wtCommits.push(h);
+              }
+            }
+            wt[t.id] = { head: t.head, files: files.slice(0, 500), edits: [] };
+          }
+        }
+        // 세션 폴더의 커밋을 앞에 — 상한(20)에 걸리면 작업 폴더 쪽이 잘린다(변경 목록과 같은 순서 · 1차 WARN).
+        commits = commitsOf(dir, prevHead, head, prevAt);
+        for (const h of wtCommits) if (!commits.includes(h)) commits.push(h);
+        commits = commits.slice(0, 20);
+
+        const now = statusOf(dir);
         try {
           // ⚠️ mode를 명시한다 — 안 주면 프로세스 기본 umask로 0755/0644가 되어(적대검증 WARN·실측)
           //    **이 파일이 애초에 막으려던 것이 로컬 파일권한으로는 그대로 열린다.** 담긴 내용이
@@ -179,7 +304,7 @@ printf '%s' "$INPUT" | nohup node -e '
           try { fs.chmodSync(stateDir, 0o700); } catch {}
           // 원자적 쓰기(tmp → rename) — 같은 세션의 병렬 도구가 반쯤 쓴 파일을 읽어 기준선을 잃지 않게(1차 WARN).
           const tmp = `${stateFile}.${process.pid}.tmp`;
-          fs.writeFileSync(tmp, JSON.stringify({ files: now.slice(0, 500), head, at: nowAt }), { mode: 0o600 });
+          fs.writeFileSync(tmp, JSON.stringify({ files: now.slice(0, 500), head, at: nowAt, wt }), { mode: 0o600 });
           try { fs.chmodSync(tmp, 0o600); } catch {}
           fs.renameSync(tmp, stateFile);
         } catch { /* 상태를 못 써도 관측은 계속한다(다음 번에 다시 기준선이 될 뿐) */ }
@@ -188,8 +313,11 @@ printf '%s' "$INPUT" | nohup node -e '
           changed = [];
         } else {
           const before = new Set(prev);
-          changed = now.filter((p) => !before.has(p)).slice(0, 50);
+          changed = now.filter((p) => !before.has(p));
         }
+        // 작업 폴더에서 바뀐 것도 **같은 이름**(프로젝트 자리 기준)이라 합쳐 보낸다 — 중복은 한 번.
+        for (const f of wtChanged) if (!changed.includes(f)) changed.push(f);
+        changed = changed.slice(0, 50);
       }
 
       // ⚠️ 보내는 것: 도구 이름 · **이번에 새로 바뀐** 레포 상대경로 · 결과 크기 · (0.2.18) 새 커밋 번호.

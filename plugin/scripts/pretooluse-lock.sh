@@ -171,6 +171,7 @@ export TEAMPING_TOKEN="$TOKEN" TEAMPING_BASE="$BASE" TEAMPING_PROJECT_DIR="$PROJ
 . "$(dirname "$0")/window-id.sh" # 0.2.17 — 이 창의 식별자(TEAMPING_WINDOW_ID) · 서버가 자기 창의 잠금만 풀게
 # 추출기는 **파일로 따로** 둔다(인라인 복사본이 아니라) — 시험이 실제로 도는 그 코드를 재도록.
 export TEAMPING_EXTRACTOR="$(dirname "${BASH_SOURCE[0]}")/bash-write-targets.mjs"
+export TEAMPING_TREES="$(dirname "${BASH_SOURCE[0]}")/repo-trees.mjs" # 0.2.19 — 같은 레포의 작업 폴더 목록(단일 소스)
 
 printf '%s' "$INPUT" | node --input-type=module -e '
 const fs = await import("node:fs");
@@ -187,10 +188,28 @@ try { input = JSON.parse(raw); } catch { passThrough(); }
 
 const projectDir = process.env.TEAMPING_PROJECT_DIR;
 
+// ⭐ 0.2.19 — 같은 레포의 **다른 작업 폴더**(git worktree)도 팀 자산이다. 전엔 세션 폴더 밖이면 조용히 건너뛰어
+//    작업 폴더에서 고친 파일이 하나도 안 잠겼다(카드 36eec90b). 목록은 git 에게 묻고(repo-trees.mjs · 단일 소스),
+//    이름은 그 작업 폴더의 프로젝트 자리 기준 — 어느 폴더에서 고쳐도 같은 이름으로 만난다.
+//    git 호출은 풀 경로가 있을 때만 한 번(≈ 8ms) · 모듈이나 git 이 없으면 아래 옛 동작 그대로.
+let trees;
+const repoTrees = async () => {
+  if (trees !== undefined) return trees;
+  try {
+    const m = await import(process.env.TEAMPING_TREES);
+    const info = m.listRepoTrees(projectDir, { timeout: 1500 }); // 서버 문의(2초)보다 짧게 — 동기 구간이라(1차·보안 WARN)
+    trees = info ? { m, info } : null;
+  } catch { trees = null; }
+  return trees;
+};
+
 // 프로젝트 기준 상대경로로 바꾼다. 프로젝트 밖 파일이면 팀 자산이 아니므로 관여하지 않는다.
 // ⚠️ Bash는 다른 디렉토리에서 돌 수 있으므로 훅이 준 cwd를 기준으로 먼저 절대화한다.
 const toRel = (p, cwd) => {
   if (typeof p !== "string" || !p) return null;
+  if (trees) {
+    try { return trees.m.resolveInTrees(p, trees.info, cwd)?.rel ?? null; } catch { return null; }
+  }
   const abs = path.isAbsolute(p) ? p : path.resolve(cwd || projectDir, p);
   const rel = path.relative(projectDir, abs);
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
@@ -206,11 +225,15 @@ if (input?.tool_name === "Bash") {
   try { ({ extractWriteTargets: extract } = await import(process.env.TEAMPING_EXTRACTOR)); } catch { passThrough(); }
   let out;
   try { out = extract(command); } catch { passThrough(); }
+  if (!(out?.targets ?? []).length) passThrough(); // 쓰기 대상이 없으면 git 도 안 부른다(Opus 2차 INFO-6)
+  await repoTrees();
   paths = (out?.targets ?? []).map((t) => toRel(t, input?.cwd)).filter(Boolean);
   // 회색지대(out.grey)는 여기서 막지 않는다 — 무엇을 쓸지 모르는 채로 막으면 4명령 중 1개가 걸린다.
   // 그 구멍은 커밋 전 게이트(tools/precommit-lock.sh)가 받는다. ⛔ "대상 없음 = 안전"이 아니다.
   if (!paths.length) passThrough();
 } else {
+  if (typeof input?.tool_input?.file_path !== "string" || !input.tool_input.file_path) passThrough();
+  await repoTrees();
   const rel = toRel(input?.tool_input?.file_path, null);
   if (!rel) passThrough();
   paths = [rel];
