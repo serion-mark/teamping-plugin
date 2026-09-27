@@ -11,7 +11,7 @@
       "name": "teamping",
       "source": "./plugin",
       "description": "Collaboration hooks for Teamping — shows your tasks and roadmap when a session opens and keeps work from going unrecorded. Automation level (Lv0–Lv3) is chosen at install. 세션을 열면 팀핑(내 할일·로드맵) 상황을 자동 표시하고 기록 누락을 막는 협업 훅. 설치 시 자동화 세기(Lv0~Lv3) 선택.",
-      "version": "0.2.19"
+      "version": "0.2.20"
     }
   ]
 }

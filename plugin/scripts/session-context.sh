@@ -114,7 +114,16 @@ case "$TZRAW" in
     case "$TZRAW" in -*) TZOFF=$(( 0 - _v )) ;; *) TZOFF=$_v ;; esac
     ;;
 esac
-JSON=$(curl -s --max-time 5 -H @"$HDR" -H "accept-language: ${TEAMPING_LANG:-ko}" -H "x-teamping-tz-offset: $TZOFF" "$URL" 2>/dev/null) || exit 0
+# ⭐ 0.2.20 — 이 플러그인의 판 번호. 서버가 최신 판과 비교해 옛 판이면 브리핑 맨 위에 「새 판이 있다」 한 줄을 붙인다
+#    (새 판을 발행해도 설치된 기계는 스스로 받지 않는다 — 이 맥이 0.2.15 에 멈춰 있었다 · 레저 P1).
+#    판을 못 읽으면 `unknown` 을 보낸다 — 헤더가 **있기만 하면** 서버는 새 훅으로 보고 알리지 않는다
+#    (빼 버리면 손으로 건 새 훅이 「0.2.19 이하」 거짓 알림을 매일 받았다 · Opus 2차 W3).
+PVER="$(jq -r '.version // empty' "$(dirname "$0")/../.claude-plugin/plugin.json" 2>/dev/null)"
+case "$PVER" in
+  [0-9]*.[0-9]*.[0-9]*) case "$PVER" in *[!0-9.]*) PVER="unknown" ;; esac ;;
+  *) PVER="unknown" ;;
+esac
+JSON=$(curl -s --max-time 5 -H @"$HDR" -H "accept-language: ${TEAMPING_LANG:-ko}" -H "x-teamping-tz-offset: $TZOFF" -H "x-teamping-plugin-version: $PVER" "$URL" 2>/dev/null) || exit 0
 # ⭐ 22-1 「안 이어졌다」 — 열쇠가 무효/권한 없음(401·403)이면 전엔 말없이 끝났다(조용한 자리 ⑥ 「내보내진 사람의 열쇠 — 본인은 모름」).
 #    서버가 notice 를 실어 주므로 그 한 줄만 보이고 끝낸다.
 if ! echo "$JSON" | jq -e '.user' >/dev/null 2>&1; then
