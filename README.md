@@ -57,6 +57,8 @@ Two scripts in this plugin are **not hooks** — they only run if you wire them 
 | `precommit-lock.sh` | the git pre-commit hook, after you install it | repository address, list of staged file paths |
 | `notify-deploy.sh` | when you call it from your own deploy | repository address, the deployed commit SHA, and the SHAs of the commits in that range (up to 200) — SHAs only, never commit messages or diffs |
 
+**Setup resume.** When the setup kit needs an app restart, the AI leaves a copy of the kit plus the step to resume and the copy's hash in `~/.config/teamping/setup/<per-repo key>/` on this computer (the repo is untouched · no secrets). In the reopened session `SessionStart` reads it and tells the AI to continue from that step only if the hash and the repo path match — nothing is sent. Notes older than 7 days aren't followed; they're cleared and mentioned once. The AI deletes the note when setup is done.
+
 **The pre-commit check is opt-in per repository.** When it's off, the session-start briefing asks once a day whether to turn it on; `install-precommit.sh` then inserts one marked block right after the first line of this machine's `.git/hooks/pre-commit` (never committed; the rest of an existing hook is kept as is). If you installed it, `SessionStart` keeps the path inside that block pointing at the current plugin version (old version folders get cleaned up after an update) — it touches nothing outside the block. Repos using `core.hooksPath` (husky etc.), symlinked hook files, and hooks that aren't sh-family scripts are left alone (the installer prints the line to add instead). To stop being asked: `git config teamping.precommit off`.
 
 Never sent: file contents, source code, command text, tool output, your conversation, prompts,
@@ -167,6 +169,8 @@ License: MIT.
 | `precommit-lock.sh` | 설치한 뒤, git 커밋 직전에 | 저장소 주소 · 스테이지에 올린 파일 경로 목록 |
 | `notify-deploy.sh` | 직접 배포 절차에서 부를 때 | 저장소 주소 · 배포한 커밋 sha · 그 구간 커밋들의 sha(최대 200개) — **sha 뿐이고 커밋 메시지나 diff 는 안 보냅니다** |
 
+**셋업 이어하기.** 셋업 키트로 연결하다 앱을 다시 켜야 할 때, AI 가 이 컴퓨터의 `~/.config/teamping/setup/<레포별 열쇠>/` 에 키트 사본과 이어 할 단계·사본 해시를 남깁니다(레포는 건드리지 않음 · 비밀값 없음). 다시 연 세션에서 `SessionStart` 가 그걸 읽어, 사본 해시와 레포 경로가 맞을 때만 AI 에게 그 단계부터 이어서 하라고 알립니다 — 아무것도 보내지 않습니다. 7일이 넘은 메모는 따르지 않고 지운 뒤 한 번만 알립니다. 셋업이 끝나면 AI 가 지웁니다.
+
 **커밋 전 확인은 레포마다 켜는 선택입니다.** 꺼져 있으면 세션 시작 브리핑이 하루 한 번 켤지 묻고, 켜면 `install-precommit.sh` 가 이 기계의 `.git/hooks/pre-commit` 첫 줄 아래에 표식 달린 블록 하나를 넣습니다(저장소에 커밋되지 않음 · 기존 훅 내용은 그대로). 켠 뒤엔 `SessionStart` 가 그 블록 안의 경로를 지금 플러그인 판으로 맞춥니다(새 판을 받으면 옛 판 폴더가 지워지기 때문) — 블록 밖은 건드리지 않습니다. `core.hooksPath`(husky 등)를 쓰는 레포 · 심볼릭 링크 훅 · sh 계열이 아닌 훅은 건드리지 않습니다(설치 스크립트가 넣을 줄만 알려 줍니다). 그만 묻게 하려면 `git config teamping.precommit off`.
 
 나가지 않는 것: 파일 내용 · 소스코드 · 명령어 원문 · 도구 출력 본문 · 대화 · 프롬프트 · 환경변수 · API 키 ·
@@ -210,6 +214,7 @@ plugin/
 ├── hooks/hooks.json                # SessionStart · PreToolUse · PostToolUse · SessionEnd · Stop
 └── scripts/
     ├── session-context.sh          # 상황 요약 + 세션 시작 알림
+    ├── setup-resume.sh             # 셋업 이어하기 (세션 시작이 부름)
     ├── pretooluse-lock.sh          # 편집 직전 파일 락 검사 (bash-write-targets.mjs 가 Bash 의 쓰기 대상을 뽑는다)
     ├── posttooluse-observe.sh      # 바뀐 파일 목록 관측
     ├── sessionend-lock.sh          # 락 해제 + 자리 비움

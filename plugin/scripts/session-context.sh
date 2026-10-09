@@ -22,9 +22,7 @@ case "$LEVEL" in
   lv0 | lv1 | lv2 | lv3) ;;
   *) [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && LEVEL="lv2" || LEVEL="lv1" ;;
 esac
-case "$LEVEL" in
-  lv0 | lv1) exit 0 ;; # 끔·수동은 세션 시작에 조용
-esac
+[ "$LEVEL" = "lv0" ] && exit 0 # 끔은 세션 시작에 아무것도 안 한다
 
 # 브리핑 언어 — 설치 옵션(auto/ko/en). 값이 없거나 치환되지 않은 템플릿이면 auto 로 읽는다.
 #    auto = 셸 로케일($LC_ALL → $LC_MESSAGES → $LANG)을 따르고, 못 읽으면 ko.
@@ -40,6 +38,11 @@ case "${TEAMPING_LANG:-auto}" in
     ;;
 esac
 export TEAMPING_LANG
+
+# 셋업 이어하기 — 셋업 키트가 앱을 다시 켜기 직전에 남긴 메모가 있으면 AI 에게 그 단계부터 이어서 하라고 알린다.
+#    연결이 아직 안 됐을 수도 있는 때라 열쇠 확인보다 먼저 한다. 수동(lv1)에서도 알린다 — 사람이 시작한 셋업을 잇는 것이다.
+bash "$(dirname "${BASH_SOURCE[0]}")/setup-resume.sh" </dev/null 2>/dev/null || true
+[ "$LEVEL" = "lv1" ] && exit 0 # 수동은 브리핑을 띄우지 않는다
 
 command -v jq >/dev/null 2>&1 || exit 0
 command -v curl >/dev/null 2>&1 || exit 0
