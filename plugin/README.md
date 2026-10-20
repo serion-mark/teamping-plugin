@@ -48,7 +48,7 @@ sent. "Window id" is a random-looking hash made on this machine per Claude windo
 | `PreToolUse` | right before an edit (`Edit`·`Write`·`MultiEdit`·`NotebookEdit`; `Bash` write targets) | session id, window id, agent name, repository address, file paths (relative), tool name, display language |
 | `PostToolUse` | after any tool | session id, agent name, repository address, tool name, list of changed files (relative paths, max 50), size of the tool result in bytes, **SHAs of new commits in this repo (max 20 — SHAs only, never messages or diffs)**, the sub-agent id when a sub-agent made the call, the Teamping card id when the AI has just claimed a card, the ids of Teamping notices this window has already shown the AI (so they aren't sent again), and the id of the Teamping message when the AI has just posted one |
 | `SessionEnd` | window closes | session id, window id, the time it was sent |
-| `UserPromptSubmit` | you send a message | session id, repository address, ids of notices already shown — never your message |
+| `UserPromptSubmit` | you send a message | session id, repository address, ids of notices already shown, and the window's title if you gave it one (shown as the window's name to your team and in your own Teamping notices) — never your message |
 | `Stop` | response ends | while the window is idle, waits for a Teamping notice: session id, repository address, ids of notices already shown (otherwise nothing — local message only) |
 
 Two scripts in this plugin are **not hooks** — they only run if you wire them in yourself:
@@ -163,7 +163,7 @@ License: MIT.
 | `PreToolUse` | 편집 직전 (`Edit`·`Write`·`MultiEdit`·`NotebookEdit` · `Bash` 의 쓰기 대상) | 세션 id · 창 id · 에이전트 이름 · 저장소 주소 · 파일 경로(상대경로) · 도구 이름 · 표시 언어 |
 | `PostToolUse` | 모든 도구가 끝난 뒤 | 세션 id · 에이전트 이름 · 저장소 주소 · 도구 이름 · 바뀐 파일 목록(상대경로 · 최대 50개) · 도구 결과의 바이트 길이 · **이 레포의 새 커밋 sha(최대 20개 — sha 뿐, 메시지·diff 없음)** · 보조 에이전트가 부른 경우 그 id · AI 가 방금 작업 카드를 집었으면 그 카드 id · 이 창이 AI 에게 이미 보여 준 팀핑 연락의 id(다시 안 받게) · AI 가 방금 팀핑에 글을 올렸으면 그 글 id |
 | `SessionEnd` | 창을 닫을 때 | 세션 id · 창 id · 보낸 시각 |
-| `UserPromptSubmit` | 내가 말을 보낼 때 | 세션 id · 저장소 주소 · 이미 보여 준 연락의 id — 내가 쓴 말은 보내지 않습니다 |
+| `UserPromptSubmit` | 내가 말을 보낼 때 | 세션 id · 저장소 주소 · 이미 보여 준 연락의 id · 창에 제목을 붙였으면 그 제목(팀에게 창 이름으로 · 내 팀핑 알림에 보임) — 내가 쓴 말은 보내지 않습니다 |
 | `Stop` | 응답이 끝날 때 | 창이 쉬는 동안 팀핑 연락을 기다립니다: 세션 id · 저장소 주소 · 이미 보여 준 연락의 id (그 밖엔 없음 — 로컬 문구만) |
 
 이 플러그인의 스크립트 둘은 **훅이 아닙니다** — 직접 배선해야 돌아갑니다.

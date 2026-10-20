@@ -6,7 +6,7 @@
 //                              연락이 없으면 정해진 시간 뒤 조용히 끝난다(다음 턴 끝에 다시 건다).
 //   node inbox-wait.mjs once   한 번만 묻고 받은 줄은 맡아 둔다(다음 도구 · 입력 때 넣는다). 기다리지 않는다.
 //
-// 보내는 것: 세션 id · 레포 주소(어느 프로젝트인지) · 「받았다」 id. 받는 것: 서버가 만든 한 줄 문장들.
+// 보내는 것: 세션 id · 레포 주소(어느 프로젝트인지) · 「받았다」 id · (입력 때 한 번 묻기만) 사람이 붙인 창 제목. 받는 것: 서버가 만든 한 줄 문장들.
 // 환경: TEAMPING_TOKEN · TEAMPING_BASE · TEAMPING_REPO_KEY · TEAMPING_PROJECT_DIR
 // ─────────────────────────────────────────────────────────────────────────────
 import {
@@ -71,7 +71,10 @@ async function main(ev) {
 
   if (MODE === "once") {
     const acks = acksToSend(p);
-    const { status, j } = await ask(base, token, { session_id: session, repo_key: repoKey, inbox_ack: acks, wait_s: 0 }, 5);
+    const body = { session_id: session, repo_key: repoKey, inbox_ack: acks, wait_s: 0 };
+    // 0.2.26 — 창 제목(제목을 붙인 창만 입력에 온다 · 사람이 쓴 글자라 서버가 다시 정리한다). 길게 보내지 않는다.
+    if (typeof ev.session_title === "string") body.session_title = Array.from(ev.session_title).slice(0, 200).join("");
+    const { status, j } = await ask(base, token, body, 5);
     if (status === 401 || status === 403 || (j && j.ok === false && STOP_WHY.has(j.why))) { rest(p, REST_MS); return 0; }
     if (status === 200 && j && j.ok === true) afterServer(p, acks, Array.isArray(j.items) ? j.items : []);
     return 0;
