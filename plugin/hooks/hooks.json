@@ -27,6 +27,23 @@
             "env": {
               "TEAMPING_LEVEL": "${CLAUDE_PLUGIN_OPTION_AUTOMATION_LEVEL}"
             }
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/inbox-hook.sh\" stop",
+            "timeout": 5,
+            "env": {
+              "TEAMPING_LEVEL": "${CLAUDE_PLUGIN_OPTION_AUTOMATION_LEVEL}"
+            }
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/inbox-hook.sh\" wait",
+            "asyncRewake": true,
+            "timeout": 3300,
+            "env": {
+              "TEAMPING_LEVEL": "${CLAUDE_PLUGIN_OPTION_AUTOMATION_LEVEL}"
+            }
           }
         ]
       }
@@ -67,6 +84,20 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/posttooluse-observe.sh\"",
+            "timeout": 5,
+            "env": {
+              "TEAMPING_LEVEL": "${CLAUDE_PLUGIN_OPTION_AUTOMATION_LEVEL}"
+            }
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/inbox-hook.sh\" prompt",
             "timeout": 5,
             "env": {
               "TEAMPING_LEVEL": "${CLAUDE_PLUGIN_OPTION_AUTOMATION_LEVEL}"

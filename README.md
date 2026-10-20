@@ -30,8 +30,8 @@ so the plugin takes effect from the next new window.
 |---|---|---|
 | `lv0` | Off | none |
 | `lv1` | Manual. Teamping moves only when you ask for it | none (prompt only) |
-| `lv2` | Auto-read. Team situation on session start, presence, **file locks**, observation | SessionStart · PreToolUse · PostToolUse · SessionEnd |
-| `lv3` | Active. lv2 plus a "did you record it?" reminder when a response ends | lv2 + Stop |
+| `lv2` | Auto-read. Team situation on session start, presence, **file locks**, observation, **Teamping notices for this window** | SessionStart · PreToolUse · PostToolUse · UserPromptSubmit · Stop · SessionEnd |
+| `lv3` | Active. lv2 plus a "did you record it?" reminder when a response ends | lv2 + the Stop reminder |
 
 ## What leaves your machine
 
@@ -46,9 +46,10 @@ sent. "Window id" is a random-looking hash made on this machine per Claude windo
 |---|---|---|
 | `SessionStart` | window opens | session id, window id, repository address, agent name (or the channel you configured), this plugin's version, your time-zone offset, display language, and one word for this repo's pre-commit check (`off`·`on`·`declined`·`custom`) |
 | `PreToolUse` | right before an edit (`Edit`·`Write`·`MultiEdit`·`NotebookEdit`; `Bash` write targets) | session id, window id, agent name, repository address, file paths (relative), tool name, display language |
-| `PostToolUse` | after any tool | session id, agent name, repository address, tool name, list of changed files (relative paths, max 50), size of the tool result in bytes, **SHAs of new commits in this repo (max 20 — SHAs only, never messages or diffs)**, the sub-agent id when a sub-agent made the call, and the Teamping card id when the AI has just claimed a card |
+| `PostToolUse` | after any tool | session id, agent name, repository address, tool name, list of changed files (relative paths, max 50), size of the tool result in bytes, **SHAs of new commits in this repo (max 20 — SHAs only, never messages or diffs)**, the sub-agent id when a sub-agent made the call, the Teamping card id when the AI has just claimed a card, the ids of Teamping notices this window has already shown the AI (so they aren't sent again), and the id of the Teamping message when the AI has just posted one |
 | `SessionEnd` | window closes | session id, window id, the time it was sent |
-| `Stop` | response ends | nothing (local message only) |
+| `UserPromptSubmit` | you send a message | session id, repository address, ids of notices already shown — never your message |
+| `Stop` | response ends | while the window is idle, waits for a Teamping notice: session id, repository address, ids of notices already shown (otherwise nothing — local message only) |
 
 Two scripts in this plugin are **not hooks** — they only run if you wire them in yourself:
 
@@ -56,6 +57,8 @@ Two scripts in this plugin are **not hooks** — they only run if you wire them 
 |---|---|---|
 | `precommit-lock.sh` | the git pre-commit hook, after you install it | repository address, list of staged file paths |
 | `notify-deploy.sh` | when you call it from your own deploy | repository address, the deployed commit SHA, and the SHAs of the commits in that range (up to 200) — SHAs only, never commit messages or diffs |
+
+**Teamping notices for this window.** When someone replies to a message this window posted, or responds to / confirms the card this window claimed, Teamping keeps a one-line notice for this window (who · what · the id · which tool to read it with — never the message itself). The hooks add that line to the AI's context after a tool, next to your message, or once when a response ends; while the window is idle a background `Stop` hook waits for it and wakes the window (`asyncRewake` · at most 6 times an hour · gives up after 50 minutes until the next response). The AI is told to tell you first and ask before acting on it. Lines waiting to be shown and ids already shown are kept in `~/.config/teamping/inbox/` (folder 0700 · files 0600 · one set per window · cleared after 8 days). Nothing is sent to the AI from inside a sub-agent.
 
 **Setup resume.** When the setup kit needs an app restart, the AI leaves a copy of the kit plus the step to resume and the copy's hash in `~/.config/teamping/setup/<per-repo key>/` on this computer (the repo is untouched · no secrets). In the reopened session `SessionStart` reads it and tells the AI to continue from that step only if the hash and the repo path match — nothing is sent. Notes older than 7 days aren't followed; they're cleared and mentioned once. The AI deletes the note when setup is done.
 
@@ -129,8 +132,8 @@ License: MIT.
 |---|---|---|
 | `lv0` | 끔 | 없음 |
 | `lv1` | 수동. "팀핑 확인해" 하면 동작 | 없음(프롬프트만) |
-| `lv2` | 자동읽기. 세션 열면 상황 표시 · 자리 알림 · **파일 락** · 관측 | SessionStart · PreToolUse · PostToolUse · SessionEnd |
-| `lv3` | 적극. lv2 + 응답이 끝날 때 "기록했나?" 리마인더 | lv2 + Stop |
+| `lv2` | 자동읽기. 세션 열면 상황 표시 · 자리 알림 · **파일 락** · 관측 · **이 창에 온 팀핑 연락** | SessionStart · PreToolUse · PostToolUse · UserPromptSubmit · Stop · SessionEnd |
+| `lv3` | 적극. lv2 + 응답이 끝날 때 "기록했나?" 리마인더 | lv2 + Stop 리마인더 |
 
 설정 변경은 `/plugin details teamping`.
 
@@ -158,9 +161,10 @@ License: MIT.
 |---|---|---|
 | `SessionStart` | 창을 열 때 | 세션 id · 창 id · 저장소 주소 · 에이전트 이름 (설치 시 채널을 지정했으면 그 채널) · 플러그인 판 번호 · 시간대 오프셋 · 표시 언어 · 이 레포의 커밋 전 확인 상태 한 단어(`off`·`on`·`declined`·`custom`) |
 | `PreToolUse` | 편집 직전 (`Edit`·`Write`·`MultiEdit`·`NotebookEdit` · `Bash` 의 쓰기 대상) | 세션 id · 창 id · 에이전트 이름 · 저장소 주소 · 파일 경로(상대경로) · 도구 이름 · 표시 언어 |
-| `PostToolUse` | 모든 도구가 끝난 뒤 | 세션 id · 에이전트 이름 · 저장소 주소 · 도구 이름 · 바뀐 파일 목록(상대경로 · 최대 50개) · 도구 결과의 바이트 길이 · **이 레포의 새 커밋 sha(최대 20개 — sha 뿐, 메시지·diff 없음)** · 보조 에이전트가 부른 경우 그 id · AI 가 방금 작업 카드를 집었으면 그 카드 id |
+| `PostToolUse` | 모든 도구가 끝난 뒤 | 세션 id · 에이전트 이름 · 저장소 주소 · 도구 이름 · 바뀐 파일 목록(상대경로 · 최대 50개) · 도구 결과의 바이트 길이 · **이 레포의 새 커밋 sha(최대 20개 — sha 뿐, 메시지·diff 없음)** · 보조 에이전트가 부른 경우 그 id · AI 가 방금 작업 카드를 집었으면 그 카드 id · 이 창이 AI 에게 이미 보여 준 팀핑 연락의 id(다시 안 받게) · AI 가 방금 팀핑에 글을 올렸으면 그 글 id |
 | `SessionEnd` | 창을 닫을 때 | 세션 id · 창 id · 보낸 시각 |
-| `Stop` | 응답이 끝날 때 | 없음 (로컬 문구만) |
+| `UserPromptSubmit` | 내가 말을 보낼 때 | 세션 id · 저장소 주소 · 이미 보여 준 연락의 id — 내가 쓴 말은 보내지 않습니다 |
+| `Stop` | 응답이 끝날 때 | 창이 쉬는 동안 팀핑 연락을 기다립니다: 세션 id · 저장소 주소 · 이미 보여 준 연락의 id (그 밖엔 없음 — 로컬 문구만) |
 
 이 플러그인의 스크립트 둘은 **훅이 아닙니다** — 직접 배선해야 돌아갑니다.
 
@@ -168,6 +172,8 @@ License: MIT.
 |---|---|---|
 | `precommit-lock.sh` | 설치한 뒤, git 커밋 직전에 | 저장소 주소 · 스테이지에 올린 파일 경로 목록 |
 | `notify-deploy.sh` | 직접 배포 절차에서 부를 때 | 저장소 주소 · 배포한 커밋 sha · 그 구간 커밋들의 sha(최대 200개) — **sha 뿐이고 커밋 메시지나 diff 는 안 보냅니다** |
+
+**이 창에 온 팀핑 연락.** 누가 이 창이 쓴 글에 답장하거나, 이 창이 집은 카드에 의견을 남기거나 확인하면 팀핑이 이 창 몫으로 한 줄을 둡니다(누가 · 무엇을 · id · 읽는 도구 — 본문은 넣지 않습니다). 훅이 그 줄을 도구가 끝난 뒤 · 내가 말을 보낼 때 · 응답이 끝날 때 한 번 AI 에게 넣고, 창이 쉬는 동안엔 뒤에서 도는 `Stop` 훅이 기다리다 창을 깨웁니다(`asyncRewake` · 한 시간에 최대 6번 · 50분 기다리면 다음 응답 끝까지 쉼). AI 는 그 줄을 받으면 먼저 사용자에게 알리고 이어서 할지 묻도록 안내받습니다. 보여 줄 줄과 이미 보여 준 id 는 `~/.config/teamping/inbox/` 에 둡니다(폴더 0700 · 파일 0600 · 창마다 따로 · 8일 지나면 지움). 보조 에이전트 안에서는 넣지 않습니다.
 
 **셋업 이어하기.** 셋업 키트로 연결하다 앱을 다시 켜야 할 때, AI 가 이 컴퓨터의 `~/.config/teamping/setup/<레포별 열쇠>/` 에 키트 사본과 이어 할 단계·사본 해시를 남깁니다(레포는 건드리지 않음 · 비밀값 없음). 다시 연 세션에서 `SessionStart` 가 그걸 읽어, 사본 해시와 레포 경로가 맞을 때만 AI 에게 그 단계부터 이어서 하라고 알립니다 — 아무것도 보내지 않습니다. 7일이 넘은 메모는 따르지 않고 지운 뒤 한 번만 알립니다. 셋업이 끝나면 AI 가 지웁니다.
 
@@ -211,7 +217,7 @@ Codex · Cursor · Gemini CLI 에도 도구 실행 전에 도는 훅이 있습�
 plugin/
 ├── .claude-plugin/plugin.json      # 매니페스트 + userConfig(automation_level · channel_id)
 ├── .claude-plugin/releases.json    # 릴리스 원장
-├── hooks/hooks.json                # SessionStart · PreToolUse · PostToolUse · SessionEnd · Stop
+├── hooks/hooks.json                # SessionStart · PreToolUse · PostToolUse · UserPromptSubmit · SessionEnd · Stop
 └── scripts/
     ├── session-context.sh          # 상황 요약 + 세션 시작 알림
     ├── setup-resume.sh             # 셋업 이어하기 (세션 시작이 부름)
@@ -219,6 +225,8 @@ plugin/
     ├── posttooluse-observe.sh      # 바뀐 파일 목록 관측
     ├── sessionend-lock.sh          # 락 해제 + 자리 비움
     ├── record-reminder.sh          # 기록 리마인더 (lv3)
+    ├── inbox-hook.sh               # 이 창에 온 팀핑 연락 — 턴 끝 붙잡기 · 쉬는 창 깨우기 · 입력 옆에 넣기
+    ├── inbox-local.mjs · inbox-show.mjs · inbox-wait.mjs · inbox-pending.sh   # 연락을 맡아 두기 · 넣기 · 서버에서 가져오기 · 이 창 몫이 있나
     ├── resolve-token.sh            # .mcp.json 에서 토큰·서버 주소 찾기 (공용)
     ├── hook-debug.sh               # TEAMPING_HOOK_DEBUG 진단
     ├── precommit-lock.sh · install-precommit.sh   # 커밋 전 게이트 (선택 설치)

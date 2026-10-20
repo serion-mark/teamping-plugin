@@ -9,6 +9,9 @@
 #   직전 상태는 프로젝트 밖(~/.cache/teamping/observe)에 소유자만 읽게 저장한다.
 #
 # 서버가 응답하지 않거나 오류가 나도 도구 실행을 방해하지 않는다. 실패는 조용히 exit 0.
+#
+# 팀핑 연락: 서버 응답에 이 창에 온 연락(서버가 만든 한 줄 문장)이 실려 오면 이 기계에 맡아 두고,
+#   **다음** 도구 때 그 줄을 AI 에게 넣는다(inbox-local.mjs). 본문은 넣지 않는다.
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
@@ -30,6 +33,12 @@ INPUT="$(cat)"
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 
+# 지난번 서버 응답으로 맡아 둔 이 창 몫의 팀핑 연락이 있으면 지금 AI 에게 넣는다(없으면 node 를 띄우지 않는다).
+. "$(dirname "${BASH_SOURCE[0]}")/inbox-pending.sh"
+if teamping_inbox_has_pending "$INPUT"; then
+  printf '%s' "$INPUT" | TEAMPING_PROJECT_DIR="$PROJECT_DIR" node "$(dirname "${BASH_SOURCE[0]}")/inbox-show.mjs" PostToolUse 2>/dev/null
+fi
+
 # 토큰은 resolve-token.sh 를 별도 프로세스로 실행해 받는다(화면에 찍히지 않게).
 CREDS="$(bash "$(dirname "${BASH_SOURCE[0]}")/resolve-token.sh")"
 TOKEN="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_TOKEN=//p')"
@@ -42,6 +51,7 @@ REPO_KEY="$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || true)"
 # 여기서부터 백그라운드에서 돈다 — git·네트워크 작업이 도구 실행을 늦추지 않게.
 export TEAMPING_TOKEN="$TOKEN" TEAMPING_BASE="$BASE" TEAMPING_PROJECT_DIR="$PROJECT_DIR" TEAMPING_REPO_KEY="$REPO_KEY"
 export TEAMPING_TREES="$(dirname "${BASH_SOURCE[0]}")/repo-trees.mjs" # 같은 레포의 작업 폴더 목록(락 훅과 같은 파일)
+export TEAMPING_INBOX="$(dirname "${BASH_SOURCE[0]}")/inbox-local.mjs" # 이 창에 온 팀핑 연락을 맡아 두는 곳
 printf '%s' "$INPUT" | nohup node -e '
   const fs = require("fs"), os = require("os"), path = require("path"), crypto = require("crypto");
   const { execFileSync } = require("child_process");
@@ -291,7 +301,23 @@ printf '%s' "$INPUT" | nohup node -e '
       //   보내는 것은 그 불투명 id 하나뿐이고, 형식이 맞지 않으면 보내지 않는다.
       const rawAgentId = typeof ev.agent_id === "string" ? ev.agent_id : "";
       const subagentId = /^[A-Za-z0-9_-]{1,64}$/.test(rawAgentId) ? rawAgentId : null;
-      await fetch(`${process.env.TEAMPING_BASE}/api/hooks/observe`, {
+
+      // 팀핑 연락 — 이미 AI 에게 넣은 줄의 id 를 「받았다」로 함께 보낸다(서버가 같은 줄을 다시 주지 않게).
+      //   팀핑에 글을 쓴 도구면 그 글 id 를 보낸다 — 그 글에 답장이 오면 이 창으로 오게.
+      let inbox = null, inboxPaths = null, inboxAck = [];
+      try {
+        inbox = await import(require("url").pathToFileURL(process.env.TEAMPING_INBOX).href);
+        inboxPaths = inbox.inboxPaths(dir, session); // 세션 id 가 모양에 안 맞으면 null
+        inboxAck = inbox.acksToSend(inboxPaths);
+      } catch { inbox = null; }
+      const POST_TOOLS = /^mcp__.+__(post_channel_message|post_thread_message)$/;
+      let postedMessageId = null;
+      if (POST_TOOLS.test(tool)) {
+        const text = typeof resp === "string" ? resp : resp == null ? "" : JSON.stringify(resp);
+        const pm = /\(id ([0-9a-f-]{36})\)/.exec(text);
+        if (pm && UUID.test(pm[1])) postedMessageId = pm[1];
+      }
+      const r = await fetch(`${process.env.TEAMPING_BASE}/api/hooks/observe`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${process.env.TEAMPING_TOKEN}` },
         body: JSON.stringify({
@@ -306,12 +332,22 @@ printf '%s' "$INPUT" | nohup node -e '
           claimed_manifest_id: claimedManifestId,
           // 이번 Bash 로 이 기계의 git 사용자가 새로 만든 커밋 번호(0~20 · 번호만).
           commits,
+          inbox_ack: inboxAck,
+          posted_message_id: postedMessageId,
         }),
         signal: AbortSignal.timeout(4000),
-      }).catch(() => {});
+      }).catch(() => null);
+      // 서버가 받았으면 「받았다」 id 를 지우고, 새로 온 연락은 맡아 둔다(다음 도구 때 넣는다).
+      if (r && r.ok && inbox && inboxPaths) {
+        // 할 일이 없으면(보낸 「받았다」도 · 새 연락도 · 맡아 둔 줄도 없음) 이 기계 파일을 건드리지 않는다 — 도구마다 쓰지 않게.
+        let j = null;
+        try { j = await r.json(); } catch { j = null; }
+        const got = j && j.ok === true && Array.isArray(j.inbox) ? j.inbox : [];
+        if (j && j.ok === true && (inboxAck.length > 0 || got.length > 0 || fs.existsSync(inboxPaths.pending))) inbox.afterServer(inboxPaths, inboxAck, got);
+      }
     } catch { /* 관측 실패는 조용히 — 도구는 이미 실행됐고 우리는 막을 수도 없다 */ }
   });
 ' >/dev/null 2>&1 &
 
-# 아무것도 출력하지 않는다 — 관측은 에이전트에게 말을 걸지 않는다.
+# 관측은 에이전트에게 말을 걸지 않는다 — 출력은 위의 팀핑 연락 한 줄(있을 때)뿐이다.
 exit 0
