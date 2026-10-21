@@ -1,0 +1,20 @@
+{
+  "name": "teamping",
+  "interface": {
+    "displayName": "Teamping"
+  },
+  "plugins": [
+    {
+      "name": "teamping",
+      "source": {
+        "source": "local",
+        "path": "./codex-plugin/teamping"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

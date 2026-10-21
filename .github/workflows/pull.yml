@@ -58,7 +58,7 @@ jobs:
           git clone -q --depth 1 --branch master --filter=blob:none --sparse \
             git@github.com:serion-mark/teamping.git product
           git -C product sparse-checkout set --no-cone \
-            /plugin/ /.claude-plugin/ /ops/plugin-public-repo/ /app/package.json
+            /plugin/ /.claude-plugin/ /codex-plugin/teamping/ /.agents/plugins/ /ops/plugin-public-repo/ /app/package.json
 
       - name: 발행 (버전이 다를 때만)
         shell: bash

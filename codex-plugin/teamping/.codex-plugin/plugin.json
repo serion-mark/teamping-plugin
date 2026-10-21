@@ -1,0 +1,17 @@
+{
+  "name": "teamping",
+  "version": "0.2.0",
+  "description": "팀핑 파일 잠금·팀 연락 받기 / Teamping file locks and team notices for Codex",
+  "author": {
+    "name": "Teamping"
+  },
+  "interface": {
+    "displayName": "Teamping",
+    "shortDescription": "팀핑 파일 잠금·팀 연락 / Teamping file locks and team notices",
+    "longDescription": "다른 팀원의 AI가 작업 중인 파일은 편집 전에 멈추고, 팀의 다른 AI가 보낸 연락을 보여 줍니다. Stops an edit before it touches a file a teammate's agent is working on, and shows messages from your team's other agents.",
+    "developerName": "Teamping",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me use Teamping."
+  }
+}

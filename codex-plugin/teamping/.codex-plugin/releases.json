@@ -1,0 +1,10 @@
+{
+  "note": "Codex 조각 판 기록 — 판 번호와 내용 해시(sha256)를 판마다 덧붙인다. codex-plugin/teamping/ 내용이 바뀌면 판 번호를 올린다(그래야 codex plugin marketplace upgrade 가 새 판을 받는다).",
+  "releases": [
+    {
+      "version": "0.2.0",
+      "sha256": "a96c9d48d2ae29c346b454b6b81a3dc5a7732646f9c7375fa18d5bde327cfc7f",
+      "note": "첫 공개 판 — 기본 apply_patch 편집 잠금 · 팀 연락 받기 · 자동 잠금 열쇠(레포별)."
+    }
+  ]
+}
