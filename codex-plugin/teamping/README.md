@@ -30,7 +30,12 @@ To update: `codex plugin marketplace upgrade teamping`, then `codex plugin add t
 ## Which key the hooks use
 
 - If your Codex connection uses a Teamping connection key (`bearer_token_env_var`, or an `Authorization`
-  header), the hooks use that key.
+  header), the hooks use that key. Note: an environment variable is not purely in-memory — while a session runs,
+  Codex itself may copy your exported environment (any secret, not just this key) into shell snapshot files under
+  `$CODEX_HOME/shell_snapshots/` (default `~/.codex/shell_snapshots/`). Codex normally removes them when the session
+  ends. Keep that folder out of backups, sync and shared accounts, and delete leftover snapshot files after a crash.
+  If a computer is lost or shared, revoke the key in My page. Signing in (quick connect) keeps the key out of your
+  environment.
 - If you connected Codex by signing in (no key in the config), the hooks need a separate **auto-lock key**
   for each repository. The setup kit offers it ("turn on auto-lock for this repo"). It is stored only on this
   computer at `~/.config/teamping/hookkey/` (folder 0700, file 0600) and can only call the hook endpoints —
@@ -65,8 +70,10 @@ Limits, stated plainly:
 Repository-relative file paths (up to 200 per edit), tool names, timestamps, the session id, your repository's
 identity (git remote URL or folder name), task-card ids, the ids of Teamping messages this session posted, and —
 when Codex provides one — the conversation title (up to 200 characters). **Never** file contents, patch text,
-prompts or tool output. Only HTTPS is used; redirects and proxy settings from the environment are not followed. Keys are read
-into memory only and are never written to logs or command arguments. Waiting-message receipts (ids only) are kept
+prompts or tool output. Only HTTPS is used; redirects and proxy settings from the environment are not followed. This plugin
+reads your connection key into memory only and never writes it to logs, files or command arguments. The only key it
+stores on disk is the auto-lock key described above (`~/.config/teamping/hookkey/`, 0600). Codex's own shell
+snapshots are described above. Waiting-message receipts (ids only) are kept
 in `$CODEX_HOME/teamping-inbox` so the same notice is not shown twice.
 
 ## Settings
@@ -110,6 +117,10 @@ codex plugin add teamping@teamping
 ## 훅이 쓰는 열쇠
 
 - Codex 연결이 팀핑 연결 열쇠(`bearer_token_env_var` 또는 `Authorization` 헤더)를 쓰면 훅도 그 열쇠를 씁니다.
+  참고: 환경 변수도 메모리에만 있는 것은 아닙니다 — 세션이 도는 동안 Codex 자신이 export 된 환경(이 열쇠뿐 아니라 모든 비밀)을
+  `$CODEX_HOME/shell_snapshots/`(기본 `~/.codex/shell_snapshots/`)의 셸 스냅숏 파일에 옮겨 둘 수 있습니다. 보통은 세션이 끝나면
+  지웁니다. 그 폴더를 백업·동기화·공유 계정에서 빼고, 비정상 종료 뒤 남은 스냅숏 파일은 지우세요. 컴퓨터를 잃어버리거나
+  함께 쓰게 되면 마이페이지에서 열쇠를 끊으세요. 로그인(간편 연결)으로 붙이면 열쇠가 환경에 들어가지 않습니다.
 - 로그인으로 Codex 를 연결했다면(설정에 열쇠 없음) 훅은 레포마다 따로 받는 **자동 잠금 열쇠**가 필요합니다.
   셋업 키트가 「이 레포 자동 잠금 켜기」로 안내합니다. 이 컴퓨터의 `~/.config/teamping/hookkey/`(폴더 0700 · 파일 0600)에만
   두고, 훅 전용 문만 부를 수 있어 프로젝트를 읽거나 바꾸지 못합니다. 마이페이지 → 「연결된 앱」에서 끌 수 있습니다.
@@ -140,7 +151,7 @@ codex plugin add teamping@teamping
 
 레포 기준 파일 경로(편집당 최대 200개) · 도구 이름 · 시각 · 세션 id · 레포 식별(git 원격 주소 또는 폴더 이름) · 작업 카드 id ·
 이 세션이 올린 팀핑 글의 id · Codex 가 주면 대화 제목(최대 200자). 파일 내용·패치 본문·프롬프트·도구 출력은 **보내지 않습니다.** HTTPS 만 쓰고 리다이렉트와 환경의 프록시 설정을 따르지
-않습니다. 열쇠는 메모리로만 읽고 로그나 명령 인자에 남기지 않습니다. 같은 안내를 두 번 보이지 않도록 받은 연락의 영수증
+않습니다. 이 플러그인은 연결 열쇠를 메모리로만 읽고 로그·파일·명령 인자에 남기지 않습니다. 디스크에 두는 열쇠는 위에 적은 자동 잠금 열쇠(`~/.config/teamping/hookkey/` · 0600) 하나뿐입니다(Codex 자체의 셸 스냅숏도 위에 적었습니다). 같은 안내를 두 번 보이지 않도록 받은 연락의 영수증
 (id 만)을 `$CODEX_HOME/teamping-inbox` 에 둡니다.
 
 ## 설정

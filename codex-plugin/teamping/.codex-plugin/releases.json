@@ -5,6 +5,11 @@
       "version": "0.2.0",
       "sha256": "a96c9d48d2ae29c346b454b6b81a3dc5a7732646f9c7375fa18d5bde327cfc7f",
       "note": "첫 공개 판 — 기본 apply_patch 편집 잠금 · 팀 연락 받기 · 자동 잠금 열쇠(레포별)."
+    },
+    {
+      "version": "0.2.1",
+      "sha256": "473656ab796f5415fd2fb1fb8236eb1d08b71e2cea861dbd010b22e67d714a5c",
+      "note": "README — 환경 변수로 넘긴 열쇠를 Codex 가 셸 스냅숏에 둘 수 있다는 고지. 코드 변경 없음."
     }
   ]
 }
