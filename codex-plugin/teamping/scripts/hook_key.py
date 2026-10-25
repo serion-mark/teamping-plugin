@@ -134,7 +134,11 @@ class KeyStore:
         if not re.fullmatch(FIELDS['repo'], repo):
             raise ValueError('invalid repo key')
         self.repo = repo
-        self.home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+        try:
+            account = pwd.getpwuid(os.getuid())
+        except KeyError:
+            raise ValueError('current user home unavailable') from None
+        self.home = Path(account.pw_dir)
 
     @contextlib.contextmanager
     def directory(self, write=False):
@@ -243,7 +247,7 @@ def file_connection(cwd, config_url, name):
         fields = KeyStore(repo).read()
         if fields and fields['repo'] == repo and same_hook_server(config_url, fields['server']):
             return fields['server'], fields['key'], name
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError, UnicodeError):
+    except (OSError, ValueError, subprocess.SubprocessError, UnicodeError):
         pass
     return None
 

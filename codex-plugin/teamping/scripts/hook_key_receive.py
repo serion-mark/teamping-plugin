@@ -27,7 +27,17 @@ try:
     helper = Path(__file__).resolve(strict=True).with_name('hook_key.py')
     spec = importlib.util.spec_from_file_location('teamping_hook_key', helper)
     keys = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(keys)
+    missing = object()
+    previous = sys.modules.get(spec.name, missing)
+    sys.modules[spec.name] = keys
+    try:
+        spec.loader.exec_module(keys)
+    except BaseException:
+        if previous is missing:
+            sys.modules.pop(spec.name, None)
+        else:
+            sys.modules[spec.name] = previous
+        raise
 except Exception:
     print('TEAMPING_HOOKKEY_STOP exchange_failed')
     raise SystemExit(2)

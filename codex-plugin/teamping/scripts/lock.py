@@ -210,18 +210,20 @@ def connection(root, cwd, lexical_cwd=None):
         return None
     base = urllib.parse.urlunsplit((url.scheme, url.netloc, url.path.rstrip("/")[:-4], "", ""))
     token = ""
+    headers = config.get("http_headers", {})
+    headers = headers if isinstance(headers, dict) else {}
+    env_headers = config.get("env_http_headers", {})
+    env_headers = env_headers if isinstance(env_headers, dict) else {}
     bearer_configured = ('bearer_token_env_var' in config or
-        any(k.lower() == 'authorization' for k in config.get('http_headers', {})) or
-        any(k.lower() == 'authorization' for k in config.get('env_http_headers', {})))
+        any(k.lower() == 'authorization' for k in headers) or
+        any(k.lower() == 'authorization' for k in env_headers))
     env_name = config.get("bearer_token_env_var")
     if isinstance(env_name, str):
         token = os.environ.get(env_name, "")
     else:
-        headers = config.get("http_headers", {})
-        env_headers = config.get("env_http_headers", {})
         auth = next((v for k, v in headers.items() if k.lower() == "authorization"), "")
         auth_env = next((v for k, v in env_headers.items() if k.lower() == "authorization"), None)
-        if auth_env is not None:
+        if isinstance(auth_env, str):
             auth = os.environ.get(auth_env, "")
         if isinstance(auth, str) and auth.startswith("Bearer "):
             token = auth[7:]
