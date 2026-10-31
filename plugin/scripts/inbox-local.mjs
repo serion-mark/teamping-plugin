@@ -79,6 +79,18 @@ export const FALLBACK = {
   en: "📨 Teamping — something arrived for this session, but this plugin version couldn't read the notice. Check with get_my_work or list_channel_messages.",
 };
 
+/**
+ * 채팅 글 알림(답장 · 이 세션 앞으로 온 글) 뒤에 이 플러그인이 덧붙이는 「바로 읽기 · 답하기」 — 채팅을 다시 훑어 글 번호를 찾지 않게.
+ * 서버 문장을 바꾸지 않고 여기서 붙이는 까닭: 옛 판 플러그인은 서버 문장과 글자까지 같은 줄만 받는다 — 서버 문장을 바꾸면
+ * 옛 판이 전부 「알아보지 못한 연락」으로 떨어진다. {ref} 는 틀에 맞은 줄에서 꺼낸 글 id(uuid) 뿐이다.
+ * 묶음 대화 글의 답장도 같은 알림으로 온다 — 그 글에 답하려면 bundleId 도 있어야 해서(같은 줄기 규칙) 읽은 결과의 안내를 따르라고 적는다.
+ */
+export const GUIDE = {
+  ko: " 바로 읽기: list_channel_messages(messageId={ref}) · 답하기: post_channel_message(replyTo={ref} · 묶음 대화 글이면 읽은 결과의 bundleId 도).",
+  en: " Read it directly: list_channel_messages(messageId={ref}) · reply: post_channel_message(replyTo={ref} · for a bundle-conversation message, also the bundleId shown when you read it).",
+};
+const GUIDE_KEYS = ["inbox_reply_channel", "inbox_direct"];
+
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const ID_PAT = "(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\\?)";
 const NAME_PAT = "「[\\p{L}\\p{N}\\p{M} .\\-_']{1,24}」";
@@ -96,6 +108,21 @@ const ITEM_RE = new RegExp(`^(?:${["ko", "en"].flatMap((l) => [
   ...LINE_KEYS.map((k) => pat(TEMPLATES[l][k], l) + esc(TEMPLATES[l].inbox_tail)),
   pat(TEMPLATES[l].inbox_receipt, l),
 ]).join("|")})$`, "u");
+// 안내를 붙일 줄 — 틀 + 꼬리 그대로 · {ref} 만 잡는다(uuid 일 때만 · 「?」면 붙이지 않는다).
+const GUIDE_RES = ["ko", "en"].flatMap((l) => GUIDE_KEYS.map((k) => ({
+  lang: l,
+  tail: TEMPLATES[l].inbox_tail,
+  re: new RegExp(`^${pat(TEMPLATES[l][k], l).replace(ID_PAT, `(${ID_PAT})`)}${esc(TEMPLATES[l].inbox_tail)}$`, "u"),
+})));
+/** 채팅 글 알림이면 꼬리 앞에 「바로 읽기 · 답하기」를 넣는다. 아니면 그대로. */
+export function withGuide(line) {
+  for (const g of GUIDE_RES) {
+    const m = g.re.exec(line);
+    if (!m || !UUID.test(m[1])) continue;
+    return line.slice(0, line.length - g.tail.length) + GUIDE[g.lang].replaceAll("{ref}", m[1]) + g.tail;
+  }
+  return line;
+}
 const MORE_RE = new RegExp(`^(?:${["ko", "en"].map((l) => pat(TEMPLATES[l].inbox_more, l)).join("|")})$`, "u");
 
 export function inboxDir() {
@@ -296,7 +323,7 @@ function pick(st, pend, now) {
     if (!st.toAck.includes(it.id)) st.toAck.push(it.id);
   }
   // 같은 문장은 한 번만(대체 문장이 여럿이면 똑같은 줄이 겹친다) — 「받았다」는 위에서 모두 적었다.
-  const lines = [...new Set(show.map((x) => x.line))];
+  const lines = [...new Set(show.map((x) => withGuide(x.line)))];
   if (pend.more) lines.push(pend.more.line);
   return { lines, rest };
 }

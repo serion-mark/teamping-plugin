@@ -135,6 +135,11 @@
       "version": "0.2.26",
       "sha256": "57508bcfe87edc887cb296183f2ef8433f733ba1ce46d0d7a1e63cc74ab4b3c9",
       "note": "창에 제목을 붙였으면 내가 말을 보낼 때 그 제목을 함께 보낸다 — 팀 화면과 내 팀핑 알림(「'…' 창에 답이 와 있어요」)에 창 이름으로 보인다. 내가 쓴 말은 보내지 않는다."
+    },
+    {
+      "version": "0.2.27",
+      "sha256": "942473dcfc52726c57284cc86a2636550ffcc3f7d85fb140aff9f4058c80ba6c",
+      "note": "채팅 답장·이 세션 앞으로 온 글 알림 뒤에 「바로 읽기 list_channel_messages(messageId=…) · 답하기 post_channel_message(replyTo=…)」를 붙인다 — AI 가 채팅을 다시 훑어 글 번호를 찾지 않게. 서버 문장은 그대로라 옛 판도 그대로 받는다."
     }
   ]
 }
