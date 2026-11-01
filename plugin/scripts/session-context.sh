@@ -126,10 +126,22 @@ if ! echo "$JSON" | jq -e '.user' >/dev/null 2>&1; then
   exit 0
 fi
 
+# 브리핑 본문은 서버가 만든다(ko/en) — 여기서는 찍기만 한다.
+# `briefing` 이 없으면 옛 서버다 → 아래 옛 조립으로 떨어진다.
+# ⭐ 0.2.28 — 브리핑을 먼저 출력하고 그다음 세션 기록(POST)을 보낸다 — 기록 전송이 늦어도 출력은 이미 나가 있다.
+#    (서버는 이 글에 실은 「나를 부른 글」을 응답 전에 「전달됨」으로 적는다. 훅이 중간에 끊긴 경우 그 출력이 AI 문맥에 들어가는지는 확인하지 않았다.)
+BRIEF="$(printf '%s' "$JSON" | jq -r '.briefing.text // empty' 2>/dev/null)"
+if [ -n "$BRIEF" ]; then
+  printf '%s\n' "$BRIEF"
+  # 서버가 「켤지 물어보라」를 붙였을 때만 설치 스크립트 위치를 알려 준다(이 컴퓨터의 경로라 서버로 보내지 않는다).
+  if [ "$(printf '%s' "$JSON" | jq -r '.precommitPrompt // false' 2>/dev/null)" = "true" ] && [ -n "$PC_DIR" ]; then
+    printf 'TEAMPING_PRECOMMIT_INSTALLER=%s/install-precommit.sh\n' "$PC_DIR"
+  fi
+fi
+
 # ── 세션 시작 알림 ────────────────────────────────────────────────────
 # 동료들에게 「자리에 앉았다」를 알린다(라이브 화면에 바로 뜬다).
-# 브리핑을 먼저 받아 온 뒤 알린다 — 그래야 내 세션 시작이 내 브리핑에 섞이지 않는다.
-# 실패해도 브리핑은 그대로 나간다.
+# 브리핑을 먼저 받아 와 찍은 뒤 알린다 — 그래야 내 세션 시작이 내 브리핑에 섞이지 않고, 알림이 실패·지연돼도 브리핑은 이미 나가 있다.
 SESSION_ID=$(printf '%s' "${HOOK_INPUT:-}" | jq -r '.session_id // empty' 2>/dev/null)
 if [ -n "$SESSION_ID" ]; then
   . "$(dirname "$0")/window-id.sh" # 이 창의 식별자
@@ -143,17 +155,8 @@ if [ -n "$SESSION_ID" ]; then
     "$BASE/api/hooks/sessionstart" 2>/dev/null || true
 fi
 
-# 브리핑 본문은 서버가 만든다(ko/en) — 여기서는 찍기만 한다.
-# `briefing` 이 없으면 옛 서버다 → 아래 옛 조립으로 떨어진다.
-BRIEF="$(printf '%s' "$JSON" | jq -r '.briefing.text // empty' 2>/dev/null)"
-if [ -n "$BRIEF" ]; then
-  printf '%s\n' "$BRIEF"
-  # 서버가 「켤지 물어보라」를 붙였을 때만 설치 스크립트 위치를 알려 준다(이 컴퓨터의 경로라 서버로 보내지 않는다).
-  if [ "$(printf '%s' "$JSON" | jq -r '.precommitPrompt // false' 2>/dev/null)" = "true" ] && [ -n "$PC_DIR" ]; then
-    printf 'TEAMPING_PRECOMMIT_INSTALLER=%s/install-precommit.sh\n' "$PC_DIR"
-  fi
-  exit 0
-fi
+# 새 서버면 위에서 브리핑을 이미 찍었다 — 옛 조립으로 떨어지지 않는다.
+[ -n "$BRIEF" ] && exit 0
 
 # ── 옛 서버 폴백 ────────────────────────────────────────────────────
 # 옛 서버와 말이 통하게 남겨 둔 조립이다 — 새 줄은 더하지 않는다.
