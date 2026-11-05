@@ -1,0 +1,13 @@
+{
+  "name": "teamping",
+  "owner": { "name": "Serion", "email": "support@teamping.dev" },
+  "metadata": { "description": "Teamping keeps your team's AI coding tools from editing the same file at the same time." },
+  "plugins": [
+    {
+      "name": "teamping",
+      "source": "cursor-plugin/teamping",
+      "description": "Automatic file locks for Cursor: your AI stops before editing a file a teammate's AI is working on.",
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/scripts/lock.mjs\" sessionStart", "timeout": 6 }
+    ],
+    "preToolUse": [
+      {
+        "matcher": "Write|Delete|Shell|StrReplace|MultiEdit|Edit|EditNotebook|NotebookEdit|ApplyPatch",
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/scripts/lock.mjs\" preToolUse",
+        "timeout": 6
+      }
+    ],
+    "afterFileEdit": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/scripts/lock.mjs\" afterFileEdit", "timeout": 6 }
+    ],
+    "postToolUse": [
+      {
+        "matcher": "MCP:claim_work|MCP:claim_file|MCP:submit_manifest",
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/scripts/lock.mjs\" postToolUse",
+        "timeout": 6
+      }
+    ],
+    "sessionEnd": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/scripts/lock.mjs\" sessionEnd", "timeout": 6 }
+    ]
+  }
+}
