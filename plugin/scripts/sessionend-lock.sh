@@ -22,6 +22,8 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 # 이 창 몫으로 맡아 둔 팀핑 연락과 기다리는 훅의 차례 표시를 지운다 — 뒤에서 기다리던 훅이 다음 확인 때 조용히 끝난다.
 #   (이미 보여 준 id 기록은 남긴다 — 같은 대화를 이어 열면 같은 줄을 다시 넣지 않게.)
 INPUT="$(cat)"
+# Cursor 는 이 플러그인의 훅도 돌린다. Cursor 에서는 Cursor 조각이 잠근다 — 여기서 또 부르면 도구 이름이 틀어진다.
+case "$INPUT" in *'"cursor_version":'*) exit 0 ;; esac
 . "$(dirname "${BASH_SOURCE[0]}")/inbox-pending.sh"
 teamping_inbox_forget "$INPUT"
 # 토큰·서버 주소는 resolve-token.sh 가 찾는다(프로젝트 .mcp.json → 사용자 ~/.claude.json).

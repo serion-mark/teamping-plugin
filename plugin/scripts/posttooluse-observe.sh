@@ -27,6 +27,8 @@ command -v git >/dev/null 2>&1 || exit 0
 
 INPUT="$(cat)"
 [ -n "$INPUT" ] || exit 0
+# Cursor 는 이 플러그인의 훅도 돌린다. Cursor 에서는 Cursor 조각이 잠근다 — 여기서 또 부르면 도구 이름이 틀어진다.
+case "$INPUT" in *'"cursor_version":'*) exit 0 ;; esac
 
 # 진단 모드 — TEAMPING_HOOK_DEBUG 가 켜져 있을 때만 받은 입력의 구조를 남긴다(값은 남기지 않는다).
 [ -n "${TEAMPING_HOOK_DEBUG:-}" ] && printf '%s' "$INPUT" | "$(dirname "$0")/hook-debug.sh" 2>/dev/null

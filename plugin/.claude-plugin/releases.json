@@ -145,6 +145,11 @@
       "version": "0.2.28",
       "sha256": "0822649ee00ee1f17a89a8a52d664c08c1ccbd31099e7c2ea253d18dea305f1f",
       "note": "세션 시작 브리핑을 먼저 출력하고 그다음 세션 기록(「자리에 앉음」 POST)을 보낸다 — 기록 전송이 늦어도 브리핑 출력은 이미 나가 있다(M0 D7 · 서버가 브리핑의 「나를 부른 글」을 한 번만 알려 준다)."
+    },
+    {
+      "version": "0.2.29",
+      "sha256": "dcd511e5326244a6028f31e03ceae432d709ad23512241bea758b56bfcadaeb3",
+      "note": "Cursor 가 이 플러그인의 훅을 대신 돌릴 때 건너뛴다(입력에 cursor_version) — Cursor 작업이 Claude Code 로 잘못 기록되던 것을 막고, Cursor 쪽은 Cursor 조각이 맡는다."
     }
   ]
 }

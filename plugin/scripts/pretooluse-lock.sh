@@ -34,6 +34,8 @@ command -v node >/dev/null 2>&1 || exit 0
 # Bash 는 가장 자주 불리는 도구라, 파일을 바꿀 리 없는 명령은 node 를 띄우기 전에 bash 내장만으로 먼저 거른다.
 # 이 거름은 속도를 위한 것일 뿐이고 쓰기 여부의 판정은 bash-write-targets.mjs 가 한다. 애매하면 판정기로 넘긴다.
 if [ -t 0 ]; then INPUT=""; else INPUT="$(cat)"; fi
+# Cursor 는 이 플러그인의 훅도 돌린다. Cursor 에서는 Cursor 조각이 잠근다 — 여기서 또 부르면 도구 이름이 틀어진다.
+case "$INPUT" in *'"cursor_version":'*) exit 0 ;; esac
 case "$INPUT" in
   *'"tool_name":"Bash"'* | *'"tool_name": "Bash"'*)
     # 명령 문자열만 떼어낸다. 떼지 못하면 판정기로 넘긴다(느려질 뿐 놓치지 않는다).

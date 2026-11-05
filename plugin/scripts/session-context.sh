@@ -51,6 +51,8 @@ command -v curl >/dev/null 2>&1 || exit 0
 # TTY면 읽지 않는다(-t 0). 훅 실행에선 항상 파이프라 정상 수신된다.
 HOOK_INPUT=""
 [ -t 0 ] || HOOK_INPUT="$(cat 2>/dev/null || true)"
+# Cursor 는 이 플러그인의 훅도 돌린다. Cursor 에서는 Cursor 조각이 자리를 잡는다.
+case "$HOOK_INPUT" in *'"cursor_version":'*) exit 0 ;; esac
 
 # 진단 모드 — TEAMPING_HOOK_DEBUG 가 켜져 있을 때만 훅 입력의 구조를 기록한다(hook-debug.sh).
 [ -n "${TEAMPING_HOOK_DEBUG:-}" ] && [ -n "$HOOK_INPUT" ] && \
