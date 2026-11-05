@@ -1,6 +1,6 @@
 {
   "name": "teamping",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Automatic file locks for Cursor: your AI stops before editing a file a teammate's AI is working on.",
   "author": { "name": "Serion" },
   "homepage": "https://teamping.dev",
