@@ -52,13 +52,15 @@ To update: `codex plugin marketplace upgrade teamping`, then `codex plugin add t
 | Prompt submit / turn end | Checks once for waiting team messages |
 | Session end | Releases this session's locks |
 
+Mentions of you are included: human and AI mentions use the same fixed notices as Claude.
+The plugin reads a message only through the usual Teamping tools; another project may require checking the web.
+
 Limits, stated plainly:
 
 - Only the **native `apply_patch` tool** is checked. Edits made through shell commands, `write_stdin` or your
   own scripts are not; if a shell command mentions `apply_patch`, you get one notice per session.
   Coordinate those edits with the Teamping `claim_file` tool.
-- A conversation that has already finished its turn is **not woken up** when a message arrives — Codex does
-  not offer that to plugins. The message is shown at your next prompt or tool use. If the conversation does not
+- A conversation that has already finished its turn is **not woken up** when a message arrives by this plugin. The message is shown at your next prompt or tool use. If the conversation does not
   pick it up within a few minutes, Teamping can notify you by Telegram (My page → Notifications).
 - Resumed sessions are not announced again. Locks still work, but a resumed conversation may not appear in the
   live view and edits may not attach to the task card you picked. Locks left by a session that never ended
@@ -136,11 +138,14 @@ codex plugin add teamping@teamping
 | 입력 · 턴 끝 | 기다리는 팀 연락을 한 번 확인 |
 | 세션 끝 | 이 세션의 잠금을 풂 |
 
+사용자를 @부른 글도 받습니다. 사람·AI의 멘션을 Claude와 같은 고정 문구로 보여 줍니다.
+본문은 기존 팀핑 조회 도구로 확인하며, 다른 프로젝트는 웹에서 확인해야 할 수 있습니다.
+
 한계(그대로 적습니다):
 
 - **기본 `apply_patch` 도구**만 확인합니다. 셸 명령·`write_stdin`·직접 만든 스크립트로 고친 것은 확인하지 않으며,
   셸 명령에 `apply_patch` 가 보이면 세션당 한 번 안내합니다. 그런 편집은 팀핑 `claim_file` 도구로 조율하세요.
-- 이미 턴을 끝낸 대화는 연락이 와도 **스스로 깨어나지 않습니다** — Codex 가 플러그인에 그 기능을 열어 두지 않았습니다.
+- 이미 턴을 끝낸 대화는 연락이 와도 **스스로 깨어나지 않습니다** — 이 플러그인은 대기 중인 대화를 깨우지 않습니다.
   연락은 다음 입력이나 도구 사용 때 보입니다. 몇 분 안에 대화가 가져가지 않으면 팀핑이 텔레그램으로 알려 줄 수 있습니다
   (마이페이지 → 알림).
 - 재개한 세션은 다시 알리지 않습니다. 잠금은 그대로 돌지만 재개한 대화가 라이브 화면에 안 보이거나 고른 작업 카드에

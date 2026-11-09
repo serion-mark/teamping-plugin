@@ -1,6 +1,6 @@
 {
   "name": "teamping",
-  "version": "0.2.2",
+  "version": "0.2.4",
   "description": "팀핑 파일 잠금·팀 연락 받기 / Teamping file locks and team notices for Codex",
   "author": {
     "name": "Teamping"

@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   inboxPaths, acksToSend, afterServer, takeForWake, isResting, rest,
-  claimWaitTurn, isMyWaitTurn, sweepOld, formatLines, DECLARED_KINDS,
+  claimWaitTurn, isMyWaitTurn, sweepOld, formatLines, DECLARED_KINDS, isHumanPrompt, resetWakes,
 } from "./inbox-local.mjs";
 
 const MODE = process.argv[2] === "once" ? "once" : "wait";
@@ -67,6 +67,8 @@ async function main(ev) {
   if (!session || !dir || !token || !base) return 0;
   if (typeof ev.agent_id === "string" && ev.agent_id) return 0; // 서브에이전트의 턴 끝이 아니라 창의 턴 끝에만
   const p = inboxPaths(dir, session);
+  // 사람이 입력했다 — 깨우기 횟수를 0 부터(once 는 입력 훅에서만 불린다 · 깨어난 턴의 알림은 사람이 아니다).
+  if (MODE === "once" && isHumanPrompt(ev.prompt)) resetWakes(p);
   if (isResting(p)) return 0;
 
   if (MODE === "once") {

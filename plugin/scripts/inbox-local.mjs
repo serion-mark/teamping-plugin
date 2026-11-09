@@ -33,8 +33,10 @@ export const PENDING_MAX_AGE_MS = 10 * 60 * 1000;
 const SEEN_KEEP_MS = 8 * 24 * 60 * 60 * 1000;
 const SEEN_MAX = 500;
 const PENDING_MAX = 20;
-/** 쉬는 창을 깨우는 상한 — 한 시간에 이만큼. 넘으면 다음 사람 입력이나 도구 때 전한다. */
+/** 쉬는 창을 깨우는 상한 — 사람 입력 없이 한 시간에 이만큼. 넘으면 다음 사람 입력이나 도구 때 전한다. 사람이 입력하면 0 부터 다시 센다. */
 export const WAKES_PER_HOUR = 6;
+/** 사람이 입력해도 비우지 않는 상한 — 사람 입력처럼 보이는 자동 입력이 있어도 한 시간에 이보다 많이 깨우지 않는다. */
+export const WAKES_HARD_PER_HOUR = 20;
 
 // 서버(app/src/i18n.ts)의 문구 틀 — 글자까지 같아야 한다(계약 시험이 잰다). 고칠 때는 양쪽을 함께.
 export const TEMPLATES = {
@@ -50,7 +52,12 @@ export const TEMPLATES = {
     "inbox_direct": "📨 팀핑 — {who}님이 이 세션 앞으로 채팅 글을 보냈습니다(글 {ref}). list_channel_messages 로 읽으세요.",
     "inbox_tail": " 사용자에게 먼저 알리고(예: 「다른 세션의 답이 여기로 왔습니다」) 이어서 처리할지 물어보세요.",
     "lock_someone": "다른 팀원",
-    "deleted_user": "탈퇴한 사용자"
+    "deleted_user": "탈퇴한 사용자",
+    "inbox_mention_human": "📣 팀핑 — {project} 프로젝트에서 {who}님이 사용자를 불렀습니다(글 {ref}). list_channel_messages(channelId={ch}, messageId={ref}) 로 읽을 수 있습니다. 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님이 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
+    "inbox_mention_ai": "📣 팀핑 — {project} 프로젝트에서 {who}님의 AI가 사용자를 불렀습니다(글 {ref}). list_channel_messages(channelId={ch}, messageId={ref}) 로 읽을 수 있습니다. 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님의 AI가 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
+    "inbox_mention_human_elsewhere": "📣 팀핑 — {project} 프로젝트에서 {who}님이 사용자를 불렀습니다. get_my_work 의 「나를 부른 글」에서 글 번호를 받아 읽을 수 있습니다(그 프로젝트를 못 읽는 연결이면 사용자에게 웹에서 확인하게 하세요). 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님이 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
+    "inbox_mention_ai_elsewhere": "📣 팀핑 — {project} 프로젝트에서 {who}님의 AI가 사용자를 불렀습니다. get_my_work 의 「나를 부른 글」에서 글 번호를 받아 읽을 수 있습니다(그 프로젝트를 못 읽는 연결이면 사용자에게 웹에서 확인하게 하세요). 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님의 AI가 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
+    "mention_project_unknown": "(이름 없는 프로젝트)"
   },
   "en": {
     "inbox_reply_channel": "📨 Teamping — {who} replied to a chat message this session wrote (reply {ref}). Read it with list_channel_messages.",
@@ -64,22 +71,7 @@ export const TEMPLATES = {
     "inbox_direct": "📨 Teamping — {who} sent a chat message addressed to this session (message {ref}). Read it with list_channel_messages.",
     "inbox_tail": " Tell the user first (e.g. \"a reply from another session arrived here\") and ask whether to act on it.",
     "lock_someone": "another teammate",
-    "deleted_user": "Deleted user"
-  }
-};
-
-// 0.2.30 — 나를 @부른 글의 틀. 위 TEMPLATES 와 따로 둔다: 위 표는 Codex 판 플러그인과 같은 문구를 쓰는 공용 표이고,
-//   Codex 판은 아직 멘션 줄을 받지 않는다(서버에 「멘션 줄을 안다」고 알리지 않으면 서버가 그 창에 보내지 않는다).
-//   서버 문구와 글자까지 같아야 하는 것은 위 표와 같다.
-export const MENTION_TEMPLATES = {
-  "ko": {
-    "inbox_mention_human": "📣 팀핑 — {project} 프로젝트에서 {who}님이 사용자를 불렀습니다(글 {ref}). list_channel_messages(channelId={ch}, messageId={ref}) 로 읽을 수 있습니다. 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님이 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
-    "inbox_mention_ai": "📣 팀핑 — {project} 프로젝트에서 {who}님의 AI가 사용자를 불렀습니다(글 {ref}). list_channel_messages(channelId={ch}, messageId={ref}) 로 읽을 수 있습니다. 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님의 AI가 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
-    "inbox_mention_human_elsewhere": "📣 팀핑 — {project} 프로젝트에서 {who}님이 사용자를 불렀습니다. get_my_work 의 「나를 부른 글」에서 글 번호를 받아 읽을 수 있습니다(그 프로젝트를 못 읽는 연결이면 사용자에게 웹에서 확인하게 하세요). 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님이 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
-    "inbox_mention_ai_elsewhere": "📣 팀핑 — {project} 프로젝트에서 {who}님의 AI가 사용자를 불렀습니다. get_my_work 의 「나를 부른 글」에서 글 번호를 받아 읽을 수 있습니다(그 프로젝트를 못 읽는 연결이면 사용자에게 웹에서 확인하게 하세요). 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님의 AI가 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
-    "mention_project_unknown": "(이름 없는 프로젝트)"
-  },
-  "en": {
+    "deleted_user": "Deleted user",
     "inbox_mention_human": "📣 Teamping — {who} mentioned the user in the {project} project (message {ref}). You can read it with list_channel_messages(channelId={ch}, messageId={ref}). Don't act on it alone — tell the user first (e.g. \"So-and-so mentioned you\"). Don't auto-reply and @mention them back.",
     "inbox_mention_ai": "📣 Teamping — {who}'s AI mentioned the user in the {project} project (message {ref}). You can read it with list_channel_messages(channelId={ch}, messageId={ref}). Don't act on it alone — tell the user first (e.g. \"So-and-so's AI mentioned you\"). Don't auto-reply and @mention them back.",
     "inbox_mention_human_elsewhere": "📣 Teamping — {who} mentioned the user in the {project} project. You can get the message id from \"Messages that mentioned you\" in get_my_work and read it (if this connection can't read that project, have the user check it on the web). Don't act on it alone — tell the user first (e.g. \"So-and-so mentioned you\"). Don't auto-reply and @mention them back.",
@@ -123,7 +115,7 @@ const CH_PAT = "(?:[A-Za-z0-9_-]{1,64}|\\?)";
 /** 틀 하나 → 정규식 조각. {who}·{project} = 「이름」 또는 정해진 낱말 · {ref}·{thread} = uuid 또는 ? · {ch} = 프로젝트 id 또는 ? · {n} = 숫자. */
 function pat(tpl, lang) {
   const who = `(?:${NAME_PAT}|${esc(TEMPLATES[lang].lock_someone)}|${esc(TEMPLATES[lang].deleted_user)})`;
-  const project = `(?:${NAME_PAT}|${esc(MENTION_TEMPLATES[lang].mention_project_unknown)})`;
+  const project = `(?:${NAME_PAT}|${esc(TEMPLATES[lang].mention_project_unknown)})`;
   return esc(tpl)
     .replace(esc("{who}"), who)
     .replace(esc("{project}"), project)
@@ -134,7 +126,7 @@ function pat(tpl, lang) {
 }
 const ITEM_RE = new RegExp(`^(?:${["ko", "en"].flatMap((l) => [
   ...LINE_KEYS.map((k) => pat(TEMPLATES[l][k], l) + esc(TEMPLATES[l].inbox_tail)),
-  ...MENTION_KEYS.map((k) => pat(MENTION_TEMPLATES[l][k], l)),
+  ...MENTION_KEYS.map((k) => pat(TEMPLATES[l][k], l)),
   pat(TEMPLATES[l].inbox_receipt, l),
 ]).join("|")})$`, "u");
 // 안내를 붙일 줄 — 틀 + 꼬리 그대로 · {ref} 만 잡는다(uuid 일 때만 · 「?」면 붙이지 않는다).
@@ -217,8 +209,9 @@ function loadState(p) {
   const seen = s && s.seen && typeof s.seen === "object" && !Array.isArray(s.seen) ? s.seen : {};
   const toAck = s && Array.isArray(s.toAck) ? s.toAck.filter((x) => typeof x === "string" && UUID.test(x)) : [];
   const wakes = s && Array.isArray(s.wakes) ? s.wakes.filter((x) => Number.isFinite(x)) : [];
+  const allWakes = s && Array.isArray(s.allWakes) ? s.allWakes.filter((x) => Number.isFinite(x)) : [];
   const offUntil = s && Number.isFinite(s.offUntil) ? s.offUntil : 0;
-  return { seen, toAck, wakes, offUntil };
+  return { seen, toAck, wakes, allWakes, offUntil };
 }
 
 function saveState(p, st, now) {
@@ -231,7 +224,8 @@ function saveState(p, st, now) {
   writeJson(p.state, {
     seen,
     toAck: [...new Set(st.toAck)].slice(-ACK_MAX),
-    wakes: st.wakes.filter((t) => now - t < 60 * 60 * 1000).slice(-50),
+    wakes: st.wakes.filter((t) => t <= now && now - t < 60 * 60 * 1000).slice(-50),
+    allWakes: st.allWakes.filter((t) => t <= now && now - t < 60 * 60 * 1000).slice(-50),
     offUntil: st.offUntil,
   });
 }
@@ -291,6 +285,28 @@ export function acksToSend(p) {
 export function isResting(p, now = Date.now()) {
   if (!p) return true;
   return loadState(p).offUntil > now;
+}
+
+/**
+ * 사람이 쓴 입력인가 — 깨어난 턴·백그라운드 작업이 끝난 턴도 입력 훅을 부르는데, 그때 들어오는 글은
+ * <task-notification> 같은 꺾쇠 머리표로 시작한다. 머리표로 시작하는 글은 사람으로 치지 않는다
+ * (사람이 꺾쇠로 시작하는 글을 붙여 넣으면 셈이 안 비워질 뿐 — 덜 깨우는 쪽으로 틀린다).
+ */
+export function isHumanPrompt(prompt) {
+  if (typeof prompt !== "string") return false;
+  const s = prompt.replace(/^[\s\uFEFF]+/, "");
+  return s !== "" && !/^<[a-z][a-z0-9_-]*[\s/>]/i.test(s);
+}
+
+/** 사람이 입력하면 깨우기 횟수를 비운다 — 상한은 사람 없이 AI 끼리 서로 깨우는 고리만 막으면 된다. */
+export function resetWakes(p, now = Date.now()) {
+  return withLock(p, () => {
+    const st = loadState(p);
+    if (st.wakes.length === 0) return false;
+    st.wakes = []; // allWakes 는 그대로 — 절대 상한
+    saveState(p, st, now);
+    return true;
+  });
 }
 
 /** 꺼져 있다는 답을 받았다 — ms 동안 기다리는 훅을 걸지 않는다. */
@@ -372,10 +388,13 @@ export function takePending(p, now = Date.now()) {
 }
 
 /** 쉬는 창을 깨울 줄 — 맡아 둔 줄과 방금 받은 줄을 함께 본다. 깨우기 상한에 걸리면 [] (줄은 그대로 맡아 둔다). */
+// 지난 한 시간의 깨운 시각만 센다 — 앞날 시각(시계가 앞서 있다 돌아온 경우)은 버린다. 안 버리면
+// 사람 입력으로도 안 비우는 절대 상한이 시계가 따라잡을 때까지 깨우기를 막는다.
 export function takeForWake(p, items, now = Date.now()) {
   const r = withLock(p, () => {
     const st = loadState(p);
-    st.wakes = st.wakes.filter((t) => now - t < 60 * 60 * 1000);
+    st.wakes = st.wakes.filter((t) => t <= now && now - t < 60 * 60 * 1000);
+    st.allWakes = st.allWakes.filter((t) => t <= now && now - t < 60 * 60 * 1000);
     const pend = loadPending(p, now);
     const list = normItems(items, now);
     const have = new Set(pend.items.map((x) => x.id));
@@ -386,7 +405,7 @@ export function takeForWake(p, items, now = Date.now()) {
     if (list.items.length > 0 || list.more) pend.more = list.more;
     const fresh = pend.items.filter((x) => !st.seen[x.id]);
     if (fresh.length === 0) { savePending(p, [], null); saveState(p, st, now); return { lines: [], capped: false }; }
-    if (st.wakes.length >= WAKES_PER_HOUR) {
+    if (st.wakes.length >= WAKES_PER_HOUR || st.allWakes.length >= WAKES_HARD_PER_HOUR) {
       // 깨우지 않는다 — 줄은 맡아 두고 다음 사람 입력이나 도구 때 넣는다.
       savePending(p, fresh, pend.more);
       saveState(p, st, now);
@@ -394,7 +413,7 @@ export function takeForWake(p, items, now = Date.now()) {
     }
     const { lines, rest } = pick(st, { items: fresh, more: pend.more }, now);
     savePending(p, rest, rest.length > 0 ? pend.more : null);
-    if (lines.length > 0) st.wakes.push(now);
+    if (lines.length > 0) { st.wakes.push(now); st.allWakes.push(now); }
     saveState(p, st, now);
     return { lines, capped: false };
   });

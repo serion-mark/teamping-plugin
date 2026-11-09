@@ -40,7 +40,7 @@ def handle(event):
     # malformed: one non-waiting lookup must not delay every completed turn.
     acks = state.acks()
     body = {'session_id': session, 'agent': 'codex', 'repo_key': repo_key,
-            'inbox_ack': acks, 'wait_s': 0}
+            'inbox_ack': acks, 'wait_s': 0, 'inbox_kinds': ['mention']}
     if isinstance(event.get('session_title'), str):
         body['session_title'] = event['session_title'][:200]
     response = adapter.post(base, token, 'inbox', body, lang, timeout=1.1, success_only=True)

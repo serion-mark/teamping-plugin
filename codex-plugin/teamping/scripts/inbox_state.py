@@ -18,16 +18,26 @@ FALLBACK = {
 }
 KEYS = ('inbox_reply_channel', 'inbox_reply_thread', 'inbox_card_response',
         'inbox_card_confirmed', 'inbox_card_unconfirmed', 'inbox_assign_request', 'inbox_direct')
+MENTION_KEYS = ('inbox_mention_human', 'inbox_mention_ai',
+                'inbox_mention_human_elsewhere', 'inbox_mention_ai_elsewhere')
+# Delimit the whole quoted name before matching the sentence separator.
+# safe_name still enforces Unicode letter/number/mark categories below.
+NAME_PAT = r'「[^「」\n]{1,24}」'
+CH_PAT = r'(?:[A-Za-z0-9_-]{1,64}|\?)'
 ID_PAT = r'(?:[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}|\?)'
 
 
 def patterns():
     items, more = [], []
     for lang, ts in TEMPLATES.items():
-        for key in (*KEYS, 'inbox_receipt', 'inbox_more'):
+        who = f"(?P<who>{NAME_PAT}|{re.escape(ts['lock_someone'])}|{re.escape(ts['deleted_user'])})"
+        project = f"(?P<project>{NAME_PAT}|{re.escape(ts['mention_project_unknown'])})"
+        for key in (*KEYS, *MENTION_KEYS, 'inbox_receipt', 'inbox_more'):
             text = ts[key] + (ts['inbox_tail'] if key in KEYS else '')
-            pat = re.escape(text).replace(re.escape('{who}'), r'(?P<who>.+?)')
+            pat = re.escape(text).replace(re.escape('{who}'), who)
             pat = pat.replace(re.escape('{ref}'), ID_PAT).replace(re.escape('{thread}'), ID_PAT)
+            pat = pat.replace(re.escape('{project}'), project)
+            pat = pat.replace(re.escape('{ch}'), CH_PAT)
             pat = pat.replace(re.escape('{n}'), '[0-9]{1,6}')
             (more if key == 'inbox_more' else items).append((lang, re.compile(pat + r'\Z')))
     return items, more
@@ -36,8 +46,10 @@ def patterns():
 ITEM_PATTERNS, MORE_PATTERNS = patterns()
 
 
-def safe_name(name, lang):
-    if name in (TEMPLATES[lang]['lock_someone'], TEMPLATES[lang]['deleted_user']):
+def safe_name(name, lang, project=False):
+    fallbacks = (TEMPLATES[lang]['mention_project_unknown'],) if project else (
+        TEMPLATES[lang]['lock_someone'], TEMPLATES[lang]['deleted_user'])
+    if name in fallbacks:
         return True
     if not name.startswith('「') or not name.endswith('」') or not 1 <= len(name[1:-1]) <= 24:
         return False
@@ -49,7 +61,8 @@ def valid_line(text, more=False):
         return False
     for lang, pat in MORE_PATTERNS if more else ITEM_PATTERNS:
         match = pat.fullmatch(text)
-        if match and ('who' not in match.groupdict() or safe_name(match['who'], lang)):
+        if (match and ('who' not in match.groupdict() or safe_name(match['who'], lang))
+                and ('project' not in match.groupdict() or safe_name(match['project'], lang, project=True))):
             return True
     return False
 
