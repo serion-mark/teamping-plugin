@@ -150,6 +150,11 @@
       "version": "0.2.29",
       "sha256": "dcd511e5326244a6028f31e03ceae432d709ad23512241bea758b56bfcadaeb3",
       "note": "Cursor 가 이 플러그인의 훅을 대신 돌릴 때 건너뛴다(입력에 cursor_version) — Cursor 작업이 Claude Code 로 잘못 기록되던 것을 막고, Cursor 쪽은 Cursor 조각이 맡는다."
+    },
+    {
+      "version": "0.2.30",
+      "sha256": "a003671ef4bebda71437ca270bf402d4415e8738d001e5b5f5583dfbb513ab0d",
+      "note": "누군가 채팅에서 나를 @부르면(다른 프로젝트 글도) 열어 둔 창 하나가 「불렀어요」 한 줄을 받는다 — 쉬던 창은 깨어나 알린다. 이 판은 서버에 그 줄을 안다고 알린다."
     }
   ]
 }

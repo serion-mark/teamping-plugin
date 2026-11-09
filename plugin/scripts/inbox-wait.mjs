@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   inboxPaths, acksToSend, afterServer, takeForWake, isResting, rest,
-  claimWaitTurn, isMyWaitTurn, sweepOld, formatLines,
+  claimWaitTurn, isMyWaitTurn, sweepOld, formatLines, DECLARED_KINDS,
 } from "./inbox-local.mjs";
 
 const MODE = process.argv[2] === "once" ? "once" : "wait";
@@ -71,7 +71,7 @@ async function main(ev) {
 
   if (MODE === "once") {
     const acks = acksToSend(p);
-    const body = { session_id: session, repo_key: repoKey, inbox_ack: acks, wait_s: 0 };
+    const body = { session_id: session, repo_key: repoKey, inbox_ack: acks, wait_s: 0, inbox_kinds: DECLARED_KINDS };
     // 0.2.26 — 창 제목(제목을 붙인 창만 입력에 온다 · 사람이 쓴 글자라 서버가 다시 정리한다). 길게 보내지 않는다.
     if (typeof ev.session_title === "string") body.session_title = Array.from(ev.session_title).slice(0, 200).join("");
     const { status, j } = await ask(base, token, body, 5);
@@ -95,7 +95,7 @@ async function main(ev) {
     const t0 = Date.now();
     let res;
     try {
-      res = await ask(base, token, { session_id: session, repo_key: repoKey, inbox_ack: acks, wait_s: waitS }, waitS + 15, mine);
+      res = await ask(base, token, { session_id: session, repo_key: repoKey, inbox_ack: acks, wait_s: waitS, inbox_kinds: DECLARED_KINDS }, waitS + 15, mine);
     } catch {
       if (!mine()) return 0; // 다음 차례가 가져갔다
       await sleep(30 * UNIT_MS); // 네트워크가 끊겼다 — 잠시 뒤 다시

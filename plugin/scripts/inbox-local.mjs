@@ -68,6 +68,26 @@ export const TEMPLATES = {
   }
 };
 
+// 0.2.30 — 나를 @부른 글의 틀. 위 TEMPLATES 와 따로 둔다: 위 표는 Codex 판 플러그인과 같은 문구를 쓰는 공용 표이고,
+//   Codex 판은 아직 멘션 줄을 받지 않는다(서버에 「멘션 줄을 안다」고 알리지 않으면 서버가 그 창에 보내지 않는다).
+//   서버 문구와 글자까지 같아야 하는 것은 위 표와 같다.
+export const MENTION_TEMPLATES = {
+  "ko": {
+    "inbox_mention_human": "📣 팀핑 — {project} 프로젝트에서 {who}님이 사용자를 불렀습니다(글 {ref}). list_channel_messages(channelId={ch}, messageId={ref}) 로 읽을 수 있습니다. 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님이 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
+    "inbox_mention_ai": "📣 팀핑 — {project} 프로젝트에서 {who}님의 AI가 사용자를 불렀습니다(글 {ref}). list_channel_messages(channelId={ch}, messageId={ref}) 로 읽을 수 있습니다. 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님의 AI가 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
+    "inbox_mention_human_elsewhere": "📣 팀핑 — {project} 프로젝트에서 {who}님이 사용자를 불렀습니다. get_my_work 의 「나를 부른 글」에서 글 번호를 받아 읽을 수 있습니다(그 프로젝트를 못 읽는 연결이면 사용자에게 웹에서 확인하게 하세요). 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님이 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
+    "inbox_mention_ai_elsewhere": "📣 팀핑 — {project} 프로젝트에서 {who}님의 AI가 사용자를 불렀습니다. get_my_work 의 「나를 부른 글」에서 글 번호를 받아 읽을 수 있습니다(그 프로젝트를 못 읽는 연결이면 사용자에게 웹에서 확인하게 하세요). 혼자 처리하지 말고 사용자에게 먼저 알리세요(예: 「OO님의 AI가 부르셨어요」). 자동으로 답하며 상대를 다시 @부르지 마세요.",
+    "mention_project_unknown": "(이름 없는 프로젝트)"
+  },
+  "en": {
+    "inbox_mention_human": "📣 Teamping — {who} mentioned the user in the {project} project (message {ref}). You can read it with list_channel_messages(channelId={ch}, messageId={ref}). Don't act on it alone — tell the user first (e.g. \"So-and-so mentioned you\"). Don't auto-reply and @mention them back.",
+    "inbox_mention_ai": "📣 Teamping — {who}'s AI mentioned the user in the {project} project (message {ref}). You can read it with list_channel_messages(channelId={ch}, messageId={ref}). Don't act on it alone — tell the user first (e.g. \"So-and-so's AI mentioned you\"). Don't auto-reply and @mention them back.",
+    "inbox_mention_human_elsewhere": "📣 Teamping — {who} mentioned the user in the {project} project. You can get the message id from \"Messages that mentioned you\" in get_my_work and read it (if this connection can't read that project, have the user check it on the web). Don't act on it alone — tell the user first (e.g. \"So-and-so mentioned you\"). Don't auto-reply and @mention them back.",
+    "inbox_mention_ai_elsewhere": "📣 Teamping — {who}'s AI mentioned the user in the {project} project. You can get the message id from \"Messages that mentioned you\" in get_my_work and read it (if this connection can't read that project, have the user check it on the web). Don't act on it alone — tell the user first (e.g. \"So-and-so's AI mentioned you\"). Don't auto-reply and @mention them back.",
+    "mention_project_unknown": "(unnamed project)"
+  }
+};
+
 /**
  * 틀에 안 맞는 줄 대신 넣는 이 플러그인의 문장 — 서버 문장은 한 글자도 넣지 않고 id 만 채운다.
  * 왜 버리지 않나: 버리면 「받았다」를 못 보내 서버가 그 줄을 계속 준다 → 그런 줄이 쌓이면 새 연락이 전부 막힌다
@@ -95,17 +115,26 @@ const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const ID_PAT = "(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\\?)";
 const NAME_PAT = "「[\\p{L}\\p{N}\\p{M} .\\-_']{1,24}」";
 const LINE_KEYS = ["inbox_reply_channel", "inbox_reply_thread", "inbox_card_response", "inbox_card_confirmed", "inbox_card_unconfirmed", "inbox_assign_request", "inbox_direct"];
-/** 틀 하나 → 정규식 조각. {who} = 「이름」 또는 정해진 두 낱말 · {ref}·{thread} = uuid 또는 ? · {n} = 숫자. */
+// 0.2.30 — 나를 @부른 글(다른 프로젝트 글일 수 있다). 꼬리는 틀 안에 있다(inbox_tail 을 붙이지 않는다).
+//   이 판은 서버에 「멘션 줄을 안다」고 신고한다(DECLARED_KINDS) — 신고하지 않은 옛 판에는 서버가 이 줄을 쌓지 않는다.
+const MENTION_KEYS = ["inbox_mention_human", "inbox_mention_ai", "inbox_mention_human_elsewhere", "inbox_mention_ai_elsewhere"];
+export const DECLARED_KINDS = ["mention"];
+const CH_PAT = "(?:[A-Za-z0-9_-]{1,64}|\\?)";
+/** 틀 하나 → 정규식 조각. {who}·{project} = 「이름」 또는 정해진 낱말 · {ref}·{thread} = uuid 또는 ? · {ch} = 프로젝트 id 또는 ? · {n} = 숫자. */
 function pat(tpl, lang) {
   const who = `(?:${NAME_PAT}|${esc(TEMPLATES[lang].lock_someone)}|${esc(TEMPLATES[lang].deleted_user)})`;
+  const project = `(?:${NAME_PAT}|${esc(MENTION_TEMPLATES[lang].mention_project_unknown)})`;
   return esc(tpl)
     .replace(esc("{who}"), who)
-    .replace(esc("{ref}"), ID_PAT)
+    .replace(esc("{project}"), project)
+    .replaceAll(esc("{ref}"), ID_PAT)
     .replace(esc("{thread}"), ID_PAT)
+    .replace(esc("{ch}"), CH_PAT)
     .replace(esc("{n}"), "[0-9]{1,6}");
 }
 const ITEM_RE = new RegExp(`^(?:${["ko", "en"].flatMap((l) => [
   ...LINE_KEYS.map((k) => pat(TEMPLATES[l][k], l) + esc(TEMPLATES[l].inbox_tail)),
+  ...MENTION_KEYS.map((k) => pat(MENTION_TEMPLATES[l][k], l)),
   pat(TEMPLATES[l].inbox_receipt, l),
 ]).join("|")})$`, "u");
 // 안내를 붙일 줄 — 틀 + 꼬리 그대로 · {ref} 만 잡는다(uuid 일 때만 · 「?」면 붙이지 않는다).
