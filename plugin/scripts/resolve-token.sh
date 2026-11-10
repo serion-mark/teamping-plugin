@@ -7,6 +7,13 @@
 #   ② ./.mcp.json                     현재 폴더
 #   ③ ~/.claude.json                  사용자 설정 — .projects["<프로젝트>"].mcpServers 먼저, 없으면 최상위 .mcpServers
 #
+# ⭐ 0.2.35 — 로그인 연결: 처음 찾은 teamping 항목에 열쇠(Authorization)가 없고 주소가 `https://<호스트>/mcp` 모양이면
+#   Claude Code 가 로그인(OAuth)으로 붙인 연결이다. 그 열쇠는 Claude Code 금고에 있어 훅이 못 쓴다 → 이 레포의 **자동 잠금 열쇠**
+#   (~/.config/teamping/hookkey/<레포 키> · hook-key.mjs · 훅 문만 연다)를 쓴다. 거기서 멈춘다 — 아래 범위의 다른 회사 열쇠로 넘어가지 않는다.
+#   열쇠 파일이 없으면 토큰 없이 `TEAMPING_KIND=oauth_nokey` 를 넘긴다(세션 시작 훅이 「자동 잠금 켜기」를 안내한다).
+#   추가 줄(로그인 연결일 때만 · 복사형 열쇠는 예전 두 줄 그대로): TEAMPING_KIND=hook|oauth_nokey · TEAMPING_HOOK_FILE=<열쇠 파일 경로> · TEAMPING_HOOK_ORIGIN=<설정 주소의 origin>
+#   ⛔ 로그인 갈래는 사용자 설정(~/.claude.json)의 항목만 — 레포 안 .mcp.json 의 열쇠 없는 항목은 예전처럼 건너뛴다.
+#
 # 출력: 훅에게만 `TEAMPING_TOKEN=…`·`TEAMPING_BASE=…` 두 줄을 넘긴다. 못 찾으면 아무것도 출력하지 않고,
 #       그때 훅은 조용히 끝난다 — 훅은 사용자 작업을 막지 않는다.
 #       ⚠️ 이 스크립트를 터미널에서 직접 실행하면 토큰이 화면에 찍힌다. 직접 실행하지 마세요.
@@ -55,6 +62,24 @@ if [ -f "$_cache" ] && [ -r "$_cache" ]; then
       if [ "$_first" -eq 1 ]; then _owner="$_line"; _first=0; else _body="$_body$_line
 "; fi
     done < "$_cache"
+    # 로그인 연결(0.2.35) — 레포별 자동 잠금 열쇠 파일이 캐시 뒤에 생기거나·바뀌거나·지워졌으면 다시 찾는다.
+    #   (설정 파일은 안 바뀌어도 열쇠 파일만 바뀐다 — 자동 잠금을 켜면 바로 다음 훅부터 쓰여야 한다.)
+    _hf=""; _ht=0
+    case "$_body" in *"TEAMPING_TOKEN="*) _ht=1 ;; esac
+    while IFS= read -r _line; do
+      case "$_line" in TEAMPING_HOOK_FILE=*) _hf="${_line#TEAMPING_HOOK_FILE=}" ;; esac
+    done <<EOF_TP
+$_body
+EOF_TP
+    if [ -n "$_hf" ]; then
+      if [ -e "$_hf" ]; then
+        # 파일이 캐시보다 새로울 때만(생김·바뀜). 「있는데 못 쓰는」 파일(서버 불일치 등) 때문에 훅마다 다시 찾지 않는다.
+        #   같은 초(초 단위 시각)도 다시 찾는다 — 「캐시보다 옛것이 아니면」(그 초가 지나면 캐시가 더 새로워져 멈춘다).
+        if ! [ "$_hf" -ot "$_cache" ]; then _owner=""; fi
+      elif [ "$_ht" -eq 1 ]; then
+        _owner=""
+      fi
+    fi
     # 주인이 다르면(파일 이름이 겹친 다른 프로젝트) 캐시를 쓰지 않고 다시 찾는다.
     if [ "$_owner" = "$_owner_line" ]; then
       printf '%s' "$_body"
@@ -68,6 +93,7 @@ command -v node >/dev/null 2>&1 || exit 0
 _out="$(
 TEAMPING_PROJECT_DIR="$TEAMPING_PROJECT_DIR" \
 TEAMPING_HOME="${HOME:-}" \
+TEAMPING_HOOKKEY_MJS="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/hook-key.mjs" \
 node --input-type=module -e '
 const fs = await import("node:fs");
 const path = await import("node:path");
@@ -77,14 +103,46 @@ const home = process.env.TEAMPING_HOME ?? "";
 
 const read = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
 
+// 로그인 연결의 자동 잠금 열쇠(0.2.35) — 못 읽으면(옛 설치·node 판) 로그인 갈래만 꺼진다(열쇠 갈래는 그대로).
+let hk = null;
+try {
+  const { pathToFileURL } = await import("node:url");
+  hk = await import(pathToFileURL(process.env.TEAMPING_HOOKKEY_MJS ?? "").href);
+} catch {
+  hk = null;
+}
 /** mcpServers 트리에서 teamping 항목을 꺼낸다. .mcp.json과 ~/.claude.json이 같은 모양이라 함수 하나면 된다. */
-const pick = (node) => {
+const pick = (node, home = false) => {
   const srv = node?.mcpServers?.teamping;
   if (!srv) return null;
   const token = String(srv?.headers?.Authorization ?? "").replace(/^Bearer\s+/, "").trim();
-  if (!token) return null;
+  if (!token) {
+    // 열쇠 없는 http 항목 + 팀핑 주소 모양 = 로그인 연결 — 여기서 멈춘다(다른 범위의 열쇠로 넘어가지 않는다).
+    // ⛔ 사용자 설정(~/.claude.json · `claude mcp add` 의 local·user)에 있는 항목만 믿는다 — 레포 안 .mcp.json 은 남이 커밋할 수 있다
+    //    (그 주소가 자동 잠금 받기의 전송처로 권해지거나 · 열쇠 없는 항목 하나로 사용자 설정의 열쇠를 막지 않게). 레포 쪽은 예전처럼 건너뛴다.
+    const url = typeof srv?.url === "string" ? srv.url : "";
+    if (home && hk && hk.isConfigUrl(url)) return { oauth: url };
+    return null;
+  }
   const base = String(srv?.url ?? "https://teamping.dev/mcp").replace(/\/mcp$/, "");
   return { token, base };
+};
+/** 로그인 연결 → 이 레포의 자동 잠금 열쇠. 값은 stdout(훅이 받는 파이프)으로만. */
+const hookLines = (url) => {
+  const origin = url.replace(/\/mcp\/?$/, "").toLowerCase(); // 받기 스크립트는 소문자 origin 만 받는다(계약 · 주소 모양은 isConfigUrl 이 이미 걸렀다)
+  let repo = null;
+  try {
+    repo = hk.repoIdentity(projectDir);
+  } catch {
+    repo = null;
+  }
+  if (!repo) return `TEAMPING_KIND=oauth_nokey\nTEAMPING_HOOK_ORIGIN=${origin}\n`;
+  const file = hk.keyFilePath(repo);
+  const f = hk.readKey(repo);
+  if (f && hk.sameHookServer(url, f.server)) {
+    return `TEAMPING_TOKEN=${f.key}\nTEAMPING_BASE=${f.server}\nTEAMPING_KIND=hook\nTEAMPING_HOOK_FILE=${file}\n`;
+  }
+  return `TEAMPING_KIND=oauth_nokey\nTEAMPING_HOOK_FILE=${file}\nTEAMPING_HOOK_ORIGIN=${origin}\n`;
 };
 
 const candidates = [];
@@ -93,14 +151,14 @@ candidates.push(() => pick(read(path.resolve(".mcp.json"))));
 if (home) {
   const user = read(path.join(home, ".claude.json"));
   // 프로젝트별 등록이 먼저다 — 워크스페이스마다 다른 토큰을 쓸 수 있다.
-  candidates.push(() => pick(user?.projects?.[projectDir]));
-  candidates.push(() => pick(user));
+  candidates.push(() => pick(user?.projects?.[projectDir], true));
+  candidates.push(() => pick(user, true));
 }
 
 for (const get of candidates) {
   const found = get();
   if (found) {
-    process.stdout.write(`TEAMPING_TOKEN=${found.token}\nTEAMPING_BASE=${found.base}\n`);
+    process.stdout.write(found.oauth !== undefined ? hookLines(found.oauth) : `TEAMPING_TOKEN=${found.token}\nTEAMPING_BASE=${found.base}\n`);
     break;
   }
 }

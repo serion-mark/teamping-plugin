@@ -31,6 +31,8 @@ if [ -z "$TOKEN" ]; then
   if [ -f "$_RESOLVER" ]; then
     _CREDS="$(bash "$_RESOLVER" 2>/dev/null || true)"
     TOKEN="$(printf '%s\n' "$_CREDS" | sed -n 's/^TEAMPING_TOKEN=//p')"
+    # 자동 잠금 열쇠(로그인 연결)는 배포 알림 문을 열 수 없다 — 거절 응답을 찍지 않고 조용히 끝낸다(0.2.35)
+    printf '%s\n' "$_CREDS" | grep -qx 'TEAMPING_KIND=hook' && TOKEN=""
     _B="$(printf '%s\n' "$_CREDS" | sed -n 's/^TEAMPING_BASE=//p')"
     [ -n "$_B" ] && BASE="$_B"
   fi

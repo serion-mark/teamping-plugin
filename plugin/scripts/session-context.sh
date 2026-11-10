@@ -63,6 +63,33 @@ case "$HOOK_INPUT" in *'"cursor_version":'*) exit 0 ;; esac
 CREDS="$(bash "$(dirname "${BASH_SOURCE[0]}")/resolve-token.sh")"
 TOKEN="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_TOKEN=//p')"
 BASE="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_BASE=//p')"
+KIND="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_KIND=//p')"
+# ⭐ 0.2.35 로그인 연결 — 이 레포에 자동 잠금 열쇠가 없으면 켜는 법을 AI 에게 알리고 끝낸다(열쇠가 없으니 보낼 것도 없다).
+#    받기 스크립트의 위치는 이 컴퓨터의 경로라 서버로 보내지 않는다. 신원 두 칸(--user·--org)은 팀핑 도구 get_my_work 맨 위 줄이 알려 준다.
+#    ⛔ 훅은 브라우저를 열지 않는다 — 사람에게 묻고 AI 가 명시적으로 실행할 때만.
+if [ "$KIND" = "oauth_nokey" ]; then
+  HK_ORIGIN="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_HOOK_ORIGIN=//p')"
+  HK_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/hook-key-receive.mjs"
+  case "$HK_ORIGIN" in https://*) ;; *) HK_ORIGIN="https://teamping.dev" ;; esac
+  # AI 가 그대로 실행할 줄이다 — 설치 경로에 셸이 해석하는 글자(따옴표·$·백틱·줄바꿈 등)가 있으면 명령을 싣지 않는다(직접 잠그기만 안내).
+  case "$HK_SCRIPT" in *[!A-Za-z0-9._/@+\ -]*) HK_SCRIPT="" ;; esac
+  if [ "${TEAMPING_LANG:-ko}" = "en" ]; then
+    printf '%s\n' "🔒 Teamping: this window uses a sign-in connection, and auto-lock isn't on for this repo yet — lock files with claim_file before editing."
+    printf '%s\n' "   To turn it on (once per repo · one approval in the browser): ask the person first, then run this **from this repo folder** with a 10-minute time limit, using --user and --org from the top line of the Teamping tool get_my_work:"
+    [ -n "$HK_SCRIPT" ] && printf '   node "%s" --origin %s --user <person id> --org <workspace id>\n' "$HK_SCRIPT" "$HK_ORIGIN"
+    printf '%s\n' "   If get_my_work has no such line at the top, it can't be turned on right now — don't make up values; lock with claim_file. If the last line is TEAMPING_HOOKKEY_OK, the next edit is locked automatically. TEAMPING_HOOKKEY_STOP <word>: tell the person and keep using claim_file. Not a git repo: claim_file only."
+  else
+    # i18n-exempt: 로그인 연결의 자동 잠금 열쇠로는 서버 문구(브리핑 문)를 받을 수 없다 — 셸이 직접 말한다(한/영 · 위·아래 갈래가 영문).
+    printf '%s\n' "🔒 팀핑: 이 창은 로그인 연결인데 이 레포에 자동 잠금이 아직 꺼져 있어요 — 파일을 고치기 전에 claim_file 로 직접 잠그세요."
+    # i18n-exempt: 로그인 연결의 자동 잠금 열쇠로는 서버 문구(브리핑 문)를 받을 수 없다 — 셸이 직접 말한다(한/영 · 위·아래 갈래가 영문).
+    printf '%s\n' "   켜려면(레포마다 한 번 · 브라우저에서 허용 한 번): 사람에게 먼저 묻고, 팀핑 도구 get_my_work 맨 위 줄의 --user·--org 값으로 **이 레포 폴더에서** 아래를 시간 상한 10분으로 실행하세요:"
+    # i18n-exempt: 로그인 연결의 자동 잠금 열쇠로는 서버 문구(브리핑 문)를 받을 수 없다 — 셸이 직접 말한다(한/영 · 위·아래 갈래가 영문).
+    [ -n "$HK_SCRIPT" ] && printf '   node "%s" --origin %s --user <사람 id> --org <회사 id>\n' "$HK_SCRIPT" "$HK_ORIGIN"
+    # i18n-exempt: 로그인 연결의 자동 잠금 열쇠로는 서버 문구(브리핑 문)를 받을 수 없다 — 셸이 직접 말한다(한/영 · 위·아래 갈래가 영문).
+    printf '%s\n' "   get_my_work 맨 위에 그 값 줄이 없으면 지금은 켤 수 없는 상태예요 — 값을 지어내지 말고 claim_file 로 잠그세요. 끝 줄이 TEAMPING_HOOKKEY_OK 면 다음 편집부터 저절로 잠깁니다. TEAMPING_HOOKKEY_STOP <낱말> 이면 사람에게 알리고 claim_file 로 계속하세요. git 레포가 아니면 claim_file 만 됩니다."
+  fi
+  exit 0
+fi
 [ -n "$TOKEN" ] || exit 0
 [ -n "$BASE" ] || BASE="https://teamping.dev"
 
@@ -122,9 +149,22 @@ if [ -n "$PC_DIR" ] && [ -f "$PC_DIR/precommit-block.sh" ]; then
 fi
 PC_HDR=()
 [ "$PC_STATE" = "none" ] || PC_HDR=(-H "x-teamping-precommit: $PC_STATE")
+# ⭐ 0.2.35 — 자동 잠금 열쇠(범위 hook)는 브리핑 문(/api/my-context · list 범위)을 못 연다 — 묻지 않고 한 줄로 대신한다.
+#    (읽기 문을 이 열쇠에 열지 않는다 — 훅 열쇠로 카드 제목을 읽을 길을 만들지 않는다.)
+if [ "$KIND" = "hook" ]; then
+  if [ "${TEAMPING_LANG:-ko}" = "en" ]; then
+    printf '%s\n' "🏓 Teamping: sign-in connection with auto-lock on for this repo. The session briefing isn't fetched by the hook here — call the Teamping tool get_my_work before you start. Pick up a card with claim_work (or submit_manifest claim:\"me\") when you start."
+  else
+    # i18n-exempt: 로그인 연결의 자동 잠금 열쇠로는 서버 문구(브리핑 문)를 받을 수 없다 — 셸이 직접 말한다(한/영 · 위·아래 갈래가 영문).
+    printf '%s\n' "🏓 팀핑: 로그인 연결 · 이 레포 자동 잠금 켜짐. 이 연결에선 세션 시작 브리핑을 훅이 가져오지 않아요 — 착수 전 팀핑 도구 get_my_work 로 상황을 보고, 착수하면 claim_work(없으면 submit_manifest claim:\"me\")로 카드를 집으세요."
+  fi
+  JSON='{}'
+else
 JSON=$(curl -s --max-time 5 -H @"$HDR" -H "accept-language: ${TEAMPING_LANG:-ko}" -H "x-teamping-tz-offset: $TZOFF" -H "x-teamping-plugin-version: $PVER" ${PC_HDR[@]+"${PC_HDR[@]}"} "$URL" 2>/dev/null) || exit 0
+fi
 # 열쇠가 무효이거나 권한이 없으면(401·403) 서버가 실어 준 안내(notice) 한 줄만 보이고 끝낸다.
-if ! echo "$JSON" | jq -e '.user' >/dev/null 2>&1; then
+#   자동 잠금 열쇠(hook)는 브리핑을 건너뛰고 아래 세션 시작 알림만 보낸다.
+if [ "$KIND" != "hook" ] && ! echo "$JSON" | jq -e '.user' >/dev/null 2>&1; then
   # nz = 아래 요약과 같은 경계 태그 무해화. notice 는 서버가 만든 완성된 한 문장이라 접두사를 붙이지 않는다.
   echo "$JSON" | jq -r 'def nz: tostring | gsub("(?i)<(?=/?\\s*teamping_reports)"; "＜"); select(.notice != null) | (.notice|nz)' 2>/dev/null
   exit 0
@@ -160,8 +200,9 @@ if [ -n "$SESSION_ID" ]; then
     "$BASE/api/hooks/sessionstart" 2>/dev/null || true
 fi
 
-# 새 서버면 위에서 브리핑을 이미 찍었다 — 옛 조립으로 떨어지지 않는다.
+# 새 서버면 위에서 브리핑을 이미 찍었다 — 옛 조립으로 떨어지지 않는다. 자동 잠금 열쇠면 브리핑이 없다(위 한 줄로 대신).
 [ -n "$BRIEF" ] && exit 0
+[ "$KIND" = "hook" ] && exit 0
 
 # ── 옛 서버 폴백 ────────────────────────────────────────────────────
 # 옛 서버와 말이 통하게 남겨 둔 조립이다 — 새 줄은 더하지 않는다.

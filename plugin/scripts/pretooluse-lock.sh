@@ -109,7 +109,15 @@ if [ -z "$TOKEN" ]; then
   if [ ! -e "$_mark" ]; then
     : > "$_mark" 2>/dev/null || true
     # i18n-exempt: 열쇠가 없으면 서버 문구를 받을 수 없어 셸이 직접 말한다(한/영).
-    if [ "${TEAMPING_LANG:-ko}" = "en" ]; then
+    if printf '%s\n' "$CREDS" | grep -qx 'TEAMPING_KIND=oauth_nokey' && printf '%s\n' "$CREDS" | grep -q '^TEAMPING_HOOK_FILE='; then
+      # i18n-exempt: 0.2.35 로그인 연결인데 이 레포 자동 잠금 열쇠가 없다 — 켜는 법은 세션 시작 안내에 있다(셸이 직접 말한다 · 한/영).
+      if [ "${TEAMPING_LANG:-ko}" = "en" ]; then
+        printf '%s' '{"systemMessage":"⚠️ Teamping: this edit was not locked — auto-lock is not on for this repo yet (sign-in connection). Lock with claim_file, or ask your AI to \"turn on Teamping auto-lock for this repo\"."}'
+      else
+        # i18n-exempt: 바로 위가 영문.
+        printf '%s' '{"systemMessage":"⚠️ 팀핑: 이 편집은 잠기지 않았습니다 — 이 레포에 자동 잠금이 아직 꺼져 있어요(로그인 연결). claim_file 로 잠그거나 AI 에게 「이 레포 팀핑 자동 잠금 켜줘」라고 하세요."}'
+      fi
+    elif [ "${TEAMPING_LANG:-ko}" = "en" ]; then
       printf '%s' '{"systemMessage":"⚠️ Teamping: this edit was not locked — no connection key found (the teamping entry in .mcp.json or ~/.claude.json). Issue a key on My page and connect."}'
     else
       # i18n-exempt: 열쇠가 없으면 서버 문구를 받을 수 없다 — 바로 위가 영문.
