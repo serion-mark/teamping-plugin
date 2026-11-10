@@ -62,19 +62,26 @@ def git(cwd, *args):
 
 
 def repo(cwd):
-    root = Path(git(cwd, "rev-parse", "--show-toplevel")).resolve()
+    is_remote = False
     try:
-        remote = git(root, "remote", "get-url", "origin")
-    except subprocess.CalledProcessError:
-        remote = root.name
-    if "://" in remote:
+        root = Path(git(cwd, "rev-parse", "--show-toplevel")).resolve()
+    except (OSError, subprocess.SubprocessError) as error:
+        from folder_context import fallback_folder
+        root, remote = fallback_folder(cwd, error)
+    else:
+        try:
+            remote = git(root, "remote", "get-url", "origin")
+            is_remote = True
+        except subprocess.CalledProcessError:
+            remote = root.name
+    if is_remote and "://" in remote:
         url = urllib.parse.urlsplit(remote)
         host = url.hostname or ""
         if not host:
             raise ValueError("remote host")
         netloc = host + (":" + str(url.port) if url.port else "")
         remote = urllib.parse.urlunsplit((url.scheme, netloc, url.path, "", ""))
-    elif "@" in remote:
+    elif is_remote and "@" in remote:
         remote = remote.split("@", 1)[1]
     if not remote or any(ord(c) < 32 for c in remote):
         raise ValueError("remote")
@@ -240,7 +247,8 @@ def connection(root, cwd, lexical_cwd=None):
     if found:
         dest, key, server = found
         return dest, Credential(key, file_key=True), server
-    if not bearer_configured:
+    from folder_context import git_marker
+    if not bearer_configured and git_marker(root):
         HOOK_NOTICE = 'hook_missing'
     return None
 
@@ -433,21 +441,9 @@ def handle(event):
     inp = event.get("tool_input")
     inp = inp if isinstance(inp, dict) else {}
     command = inp.get("command")
-    if kind == "PreToolUse" and tool == "Bash":
-        # A conservative literal detector, not a shell interpreter. Never send
-        # shell text or guess paths/workdir/cd for this unsupported edit route.
-        if isinstance(command, str) and re.search(r"(?<![A-Za-z0-9_])apply_?patch(?![A-Za-z0-9_])", command):
-            message = notice_once(session, "shell-patch", MESSAGES[locale]["shell"])
-            return {"systemMessage": message, "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": message}} if message else None
-        return None
     # An Environment ID may name the local environment too (Codex picks any turn
     # environment), so still lock local paths and warn instead of skipping.
     remote = tool == "apply_patch" and remote_patch(command)
-    if tomllib is None:
-        if kind in {"SessionStart", "PreToolUse"}:
-            message = notice_once(session, "python-runtime", MESSAGES[locale]["runtime"])
-            return {"systemMessage": message} if message else None
-        return None
     # Preserve the host's lexical cwd for path joining (link/.. != target/..).
     # Resolve separately for Git/config lookup; never use that resolved cwd to
     # choose which file the patch edits.
@@ -456,15 +452,34 @@ def handle(event):
         return None
     physical_cwd = cwd.resolve(strict=True)
     root, repo_key = repo(physical_cwd)
+    if tomllib is None:
+        if kind in {"SessionStart", "PreToolUse"}:
+            message = notice_once(session, "python-runtime", MESSAGES[locale]["runtime"])
+            return {"systemMessage": message} if message else None
+        return None
+    if kind == "PreToolUse" and tool == "Bash":
+        # Only a selected project may produce even a local hook notice.
+        if isinstance(command, str) and re.search(r"(?<![A-Za-z0-9_])apply_?patch(?![A-Za-z0-9_])", command):
+            message = notice_once(session, "shell-patch", MESSAGES[locale]["shell"])
+            return {"systemMessage": message, "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": message}} if message else None
+        return None
     creds = connection(root, physical_cwd, cwd)
     if creds is None:
-        if kind == "PreToolUse" and HOOK_NOTICE is None:
+        from folder_context import git_marker
+        if kind == "PreToolUse" and HOOK_NOTICE is None and git_marker(root):
             message = notice_once(session, "no-token", MESSAGES[locale]["missing"])
             return {"systemMessage": message} if message else None
         return None
     base, token, server_name = creds
     body = {"session_id": session, "agent": "codex", "repo_key": repo_key}
     paths, unchecked = patch_paths(inp.get("command"), cwd, root) if tool == "apply_patch" else ([], 0)
+    edit = None
+    if tool == 'apply_patch' and kind in {'PreToolUse', 'PostToolUse'}:
+        try:
+            from edit_state import EditState
+            edit = EditState(root, base, token, repo_key, event)
+        except Exception:
+            pass  # Missing metadata support must never disable locking/receipts.
     if kind == "SessionStart":
         if isinstance(event.get("session_title"), str):
             body["session_title"] = event["session_title"][:200]
@@ -474,6 +489,11 @@ def handle(event):
         post(base, token, "sessionend", body, locale)
     elif kind == "PreToolUse":
         result = post(base, token, "pretooluse", dict(body, tool_name="apply_patch", file_paths=paths, locale=locale), locale) if paths else {}
+        if result.get('decision') != 'deny' and edit is not None:
+            try:
+                edit.capture(paths)
+            except Exception:
+                pass
         output = {}
         if result.get("decision") == "deny" and isinstance(result.get("reason"), str):
             output["hookSpecificOutput"] = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": result["reason"]}
@@ -493,7 +513,21 @@ def handle(event):
         claim = re.fullmatch(r"mcp__" + re.escape(server_name) + r"__(claim_work|claim_file)", tool or "")
         if not isinstance(tool, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,180}", tool):
             return None
-        observe = dict(body, tool_name=tool, changed=paths)
+        changed = []
+        if edit is not None:
+            try:
+                changed = edit.changed(paths)
+                if not edit.matched:
+                    changed = paths
+                else:
+                    changed = [p for p in paths if p in changed or p in edit.unpaired]
+            except Exception:
+                changed = paths
+        elif tool == 'apply_patch':
+            # Older hosts omit tool_use_id: retain sanitized patch candidates.
+            # This is path observation, not proof of a successful disk write.
+            changed = paths
+        observe = dict(body, tool_name=tool, changed=changed)
         if claim:
             candidate = inp.get("manifestId")
             if not isinstance(candidate, str) or not UUID.fullmatch(candidate):

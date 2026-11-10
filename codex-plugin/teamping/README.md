@@ -40,7 +40,7 @@ To update: `codex plugin marketplace upgrade teamping`, then `codex plugin add t
   for each repository. The setup kit offers it ("turn on auto-lock for this repo"). It is stored only on this
   computer at `~/.config/teamping/hookkey/` (folder 0700, file 0600) and can only call the hook endpoints —
   it cannot read or change your projects. You can switch it off in My page → *Connected apps*.
-- Without either, the hooks do nothing and say so once per session.
+- Without either, Git projects get one notice per session. Non-Git folders stay quiet until a compatible auto-lock key is available.
 
 ## What it does
 
@@ -54,6 +54,23 @@ To update: `codex plugin marketplace upgrade teamping`, then `codex plugin add t
 
 Mentions of you are included: human and AI mentions use the same fixed notices as Claude.
 The plugin reads a message only through the usual Teamping tools; another project may require checking the web.
+
+Only explicitly registered non-Git folders and their children are recorded. Unregistered folders produce no
+requests or notices. From the installed plugin's scripts directory, run:
+
+```sh
+./teamping-folders add /path/to/project --label Project
+./teamping-folders list
+./teamping-folders remove /path/to/project
+./teamping-folders repair
+```
+
+The shared local list is `~/.config/teamping/folders.json`. The nearest registered parent wins.
+Broad locations (home, its ancestors, filesystem/mount roots, and Downloads/Documents/Desktop themselves)
+cannot be registered; individual project folders inside them can. A non-Git project sends an opaque
+`dir:` id, not its folder name. Removing and re-adding a path gives it a new id.
+The native patch hook compares only metadata when it can pair a tool call. Without an id/checkpoint, it
+retains validated patch paths for compatibility; these paths do not prove a successful write. No file contents are read.
 
 Limits, stated plainly:
 
@@ -70,13 +87,21 @@ Limits, stated plainly:
 ## What leaves your machine
 
 Repository-relative file paths (up to 200 per edit), tool names, timestamps, the session id, your repository's
-identity (git remote URL or folder name), task-card ids, the ids of Teamping messages this session posted, and —
+identity (git remote URL or opaque non-Git id), task-card ids, the ids of Teamping messages this session posted, and —
 when Codex provides one — the conversation title (up to 200 characters). **Never** file contents, patch text,
 prompts or tool output. Only HTTPS is used; redirects and proxy settings from the environment are not followed. This plugin
 reads your connection key into memory only and never writes it to logs, files or command arguments. The only key it
 stores on disk is the auto-lock key described above (`~/.config/teamping/hookkey/`, 0600). Codex's own shell
 snapshots are described above. Waiting-message receipts (ids only) are kept
 in `$CODEX_HOME/teamping-inbox` so the same notice is not shown twice.
+Native-edit checkpoints contain only relative paths and file metadata in `$CODEX_HOME/teamping-edit-state`
+(folder 0700, files 0600), are consumed once, and expire after 10 minutes. At most 256 checkpoint files are kept;
+unpaired edits retain validated tool paths. Auto-lock keys for non-Git folders require a setup kit
+that supports the same registered-root identity contract. The local folder list is at most 64KiB/50 entries,
+owned by this user with file mode 0600 and parent `teamping` mode 0700. Invalid lists are ignored in full.
+To remove invalid/missing entries, run `repair` with both input and output attached to a terminal. It previews those entries and requires
+your confirmation before removing only them. Files with unsafe permissions, ownership or top-level format
+are left untouched; correct or recreate the list instead. Recording stays off while the list is invalid.
 
 ## Settings
 
@@ -126,7 +151,7 @@ codex plugin add teamping@teamping
 - 로그인으로 Codex 를 연결했다면(설정에 열쇠 없음) 훅은 레포마다 따로 받는 **자동 잠금 열쇠**가 필요합니다.
   셋업 키트가 「이 레포 자동 잠금 켜기」로 안내합니다. 이 컴퓨터의 `~/.config/teamping/hookkey/`(폴더 0700 · 파일 0600)에만
   두고, 훅 전용 문만 부를 수 있어 프로젝트를 읽거나 바꾸지 못합니다. 마이페이지 → 「연결된 앱」에서 끌 수 있습니다.
-- 둘 다 없으면 훅은 아무것도 하지 않고 세션당 한 번 알립니다.
+- 둘 다 없으면 Git 프로젝트에는 세션당 한 번 알립니다. 일반 폴더는 호환되는 자동 잠금 열쇠가 준비될 때까지 조용히 넘어갑니다.
 
 ## 하는 일
 
@@ -141,6 +166,22 @@ codex plugin add teamping@teamping
 사용자를 @부른 글도 받습니다. 사람·AI의 멘션을 Claude와 같은 고정 문구로 보여 줍니다.
 본문은 기존 팀핑 조회 도구로 확인하며, 다른 프로젝트는 웹에서 확인해야 할 수 있습니다.
 
+Git 없는 폴더는 **등록한 폴더와 그 하위만** 기록합니다. 등록하지 않은 곳에서는 요청·안내 모두 없습니다.
+설치된 플러그인의 scripts 폴더에서 다음 명령으로 관리합니다.
+
+```sh
+./teamping-folders add /프로젝트/경로 --label 프로젝트
+./teamping-folders list
+./teamping-folders remove /프로젝트/경로
+./teamping-folders repair
+```
+
+공유 목록은 `~/.config/teamping/folders.json`입니다. 가장 가까운 상위 등록 폴더를 뿌리로 삼습니다.
+홈·홈 상위·파일시스템/마운트 루트·Downloads/Documents/Desktop 자체는 등록할 수 없고, 그 안의 개별 프로젝트는 가능합니다.
+서버에는 폴더 이름 대신 `dir:` 식별값을 보냅니다. 등록을 빼고 다시 넣으면 새 식별값이 됩니다.
+편집을 짝지을 수 있으면 메타데이터만 비교하고, 호출 id나 비교 기록이 없으면 검증된 패치 경로를 보존합니다.
+이 경로는 실제 파일 쓰기의 확증이 아닙니다. 파일 내용은 읽지 않습니다.
+
 한계(그대로 적습니다):
 
 - **기본 `apply_patch` 도구**만 확인합니다. 셸 명령·`write_stdin`·직접 만든 스크립트로 고친 것은 확인하지 않으며,
@@ -154,7 +195,7 @@ codex plugin add teamping@teamping
 
 ## 밖으로 나가는 것
 
-레포 기준 파일 경로(편집당 최대 200개) · 도구 이름 · 시각 · 세션 id · 레포 식별(git 원격 주소 또는 폴더 이름) · 작업 카드 id ·
+레포 기준 파일 경로(편집당 최대 200개) · 도구 이름 · 시각 · 세션 id · 레포 식별(git 원격 주소 또는 일반 폴더의 무작위 식별값) · 작업 카드 id ·
 이 세션이 올린 팀핑 글의 id · Codex 가 주면 대화 제목(최대 200자). 파일 내용·패치 본문·프롬프트·도구 출력은 **보내지 않습니다.** HTTPS 만 쓰고 리다이렉트와 환경의 프록시 설정을 따르지
 않습니다. 이 플러그인은 연결 열쇠를 메모리로만 읽고 로그·파일·명령 인자에 남기지 않습니다. 디스크에 두는 열쇠는 위에 적은 자동 잠금 열쇠(`~/.config/teamping/hookkey/` · 0600) 하나뿐입니다(Codex 자체의 셸 스냅숏도 위에 적었습니다). 같은 안내를 두 번 보이지 않도록 받은 연락의 영수증
 (id 만)을 `$CODEX_HOME/teamping-inbox` 에 둡니다.
@@ -168,3 +209,12 @@ codex plugin add teamping@teamping
 | `TEAMPING_MCP_SERVER` | Codex 설정의 팀핑 MCP 서버 이름(기본 `teamping`) |
 
 플러그인은 Codex 설정을 고치지 않습니다.
+
+일반 폴더의 자동 잠금 열쇠는 같은 폴더 식별 계약을 지원하는 셋업 키트가 필요합니다. 편집 비교 기록은
+`$CODEX_HOME/teamping-edit-state`에 상대경로·파일 메타데이터만 두며(폴더0700·파일0600), 한 번 소비하고
+10분 뒤 만료됩니다. 파일 최대256개를 유지하며 짝 없는 편집은 검증된 도구 경로를 보존합니다.
+등록 목록은 최대64KiB·50개이며 파일0600·상위 teamping 폴더0700·소유자 본인만 허용합니다.
+형식이나 권한이 어긋나면 목록 전체를 무시합니다.
+잘못됐거나 사라진 항목은 입력·출력이 모두 연결된 터미널에서 `repair`를 실행해 미리 본 뒤 직접 확인하면 그 항목만 제거합니다.
+파일 권한·소유자·목록 최상위 형식이 잘못되면 복구 명령도 손대지 않습니다. 형식을 고치거나 다시 등록하세요.
+목록이 잘못된 동안 훅의 기록은 계속 꺼져 있습니다.

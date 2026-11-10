@@ -2,6 +2,7 @@
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
 import os
 from pathlib import Path
 import pwd
@@ -27,6 +28,10 @@ def sha(value):
 
 def repo_key_of(disk):
     return sha('teamping-hook-repo:v1:' + disk)[:16]
+
+
+def repo_key_of_dir(disk):
+    return sha('teamping-hook-repo-dir:v1:' + disk)[:16]
 
 
 def kit_device_of(user, uid, raw):
@@ -90,9 +95,13 @@ def repo_identity(cwd):
     """Keep exact disk bytes, including final spaces; never use the legacy git helper."""
     env = {k: v for k, v in os.environ.items() if k not in GIT_ENV}
     env.update(LC_ALL='C', LANGUAGE='C')
-    r = subprocess.run(['git', '-C', str(cwd), 'rev-parse', '--git-common-dir'],
-                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                       timeout=1, check=True, env=env)
+    try:
+        r = subprocess.run(['git', '-C', str(cwd), 'rev-parse', '--git-common-dir'],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           timeout=1, check=True, env=env)
+    except (OSError, subprocess.SubprocessError) as error:
+        folders = folder_module()
+        return repo_key_of_dir(str(folders.fallback_folder(cwd, error)[0]))
     raw = r.stdout[:-1] if r.stdout.endswith(b'\n') else r.stdout
     common = Path(raw.decode('utf-8', 'strict'))
     if not common.is_absolute():
@@ -105,6 +114,16 @@ def repo_identity(cwd):
         os.fchdir(old)
         os.close(old)
     return repo_key_of(disk)
+
+
+def folder_module():
+    # The receiving kit runs python -I. Resolve only our installed sibling;
+    # never import this helper from cwd, PYTHONPATH, or user site-packages.
+    helper = Path(__file__).resolve(strict=True).with_name('folder_context.py')
+    spec = importlib.util.spec_from_file_location('teamping_folder_context', helper)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def raw_device(dev):
