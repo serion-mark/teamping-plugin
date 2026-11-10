@@ -74,11 +74,13 @@ if [ -n "$CH" ]; then
   URL="$URL?channel=$CH"
 else
   REPO_DIR_FOR_CH="${CLAUDE_PROJECT_DIR:-$PWD}"
-  REPO_KEY_FOR_CH="$(git -C "$REPO_DIR_FOR_CH" remote get-url origin 2>/dev/null || true)"
-  [ -n "$REPO_KEY_FOR_CH" ] || REPO_KEY_FOR_CH="$(basename "$REPO_DIR_FOR_CH")"
-  # URL 인코딩(한글 폴더명·공백이 있어도 요청이 깨지지 않게)
-  REPO_Q="$(printf '%s' "$REPO_KEY_FOR_CH" | jq -sRr @uri)"
-  URL="$URL?repo=$REPO_Q"
+  # git 없는 폴더는 사용자가 정해 둔 폴더만 알린다(repo-key.sh) — 아니면 레포 없이 묻는다(열쇠의 프로젝트로 답한다)
+  . "$(dirname "$0")/repo-key.sh"
+  if teamping_repo_key "$REPO_DIR_FOR_CH"; then
+    # URL 인코딩(한글 폴더명·공백이 있어도 요청이 깨지지 않게)
+    REPO_Q="$(printf '%s' "$TEAMPING_RK" | jq -sRr @uri)"
+    URL="$URL?repo=$REPO_Q"
+  fi
 fi
 
 # 토큰은 명령줄 인자(-H)로 넘기지 않는다 — 인자는 같은 컴퓨터의 다른 사용자가 프로세스 목록에서 볼 수 있다.
@@ -148,9 +150,10 @@ SESSION_ID=$(printf '%s' "${HOOK_INPUT:-}" | jq -r '.session_id // empty' 2>/dev
 if [ -n "$SESSION_ID" ]; then
   . "$(dirname "$0")/window-id.sh" # 이 창의 식별자
   REPO_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-  REPO_KEY="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null || true)"
-  [ -n "$REPO_KEY" ] || REPO_KEY="$(basename "$REPO_DIR")"
+  . "$(dirname "$0")/repo-key.sh"
+  # 기록 대상이 아닌 git 없는 폴더면 「자리에 앉았다」도 보내지 않는다.
   # 위와 같은 이유로 헤더는 파일로 넘긴다(토큰이 argv에 들어가면 ps에 보인다).
+  teamping_repo_key "$REPO_DIR" && REPO_KEY="$TEAMPING_RK" && \
   curl -s --max-time 3 -o /dev/null \
     -H @"$HDR" -H "content-type: application/json" \
     -d "$(jq -nc --arg s "$SESSION_ID" --arg r "$REPO_KEY" --arg w "${TEAMPING_WINDOW_ID:-}" '{session_id:$s, agent:"claude-code", repo_key:$r} + (if $w == "" then {} else {window_id:$w} end)')" \

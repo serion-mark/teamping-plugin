@@ -39,8 +39,13 @@ The hooks send **paths, tool names, timestamps and order** — never file conten
 git status and your `.mcp.json` to find the token.) They run in **every repository where the plugin is
 enabled, including ones not yet connected to a Teamping project.**
 "Repository address" below is your git `origin` URL exactly as configured — if credentials are embedded in it
-(like `https://user:token@…`) they go too, so keep tokens out of `origin`; with no `origin`, the folder name is
-sent. "Window id" is a random-looking hash made on this machine per Claude window (no machine or user name in it).
+(like `https://user:token@…`) they go too, so keep tokens out of `origin`; a git repository with no `origin` sends
+the folder name. **Folders without git are recorded only if you chose them** — tell your AI "record this folder too"
+(it runs `node scripts/teamping-folders.mjs add [folder]` from this plugin; `remove` and `list` also work, and you can
+run it yourself). For a chosen folder the repository address is `dir:` plus a random id (never the folder name) and
+paths are relative to that folder; the "after a tool" hook also lists files the shell command changed there (by
+modification time). Folders without git that you did not choose send no folder or file information (the session-start
+briefing is still asked for without a repository, and session end still releases this window's locks). "Window id" is a random-looking hash made on this machine per Claude window (no machine or user name in it).
 
 | Hook | When | Sent |
 |---|---|---|
@@ -154,7 +159,11 @@ License: MIT.
 훅이 보내는 것은 **경로 · 도구 이름 · 시각 · 순서**이고, 파일 내용은 보내지 않습니다(토큰을 찾으려고 git 상태와
 `.mcp.json` 은 내 컴퓨터 안에서 읽습니다). 훅은 **플러그인이 켜진 모든 저장소에서 돕니다 — 아직 팀핑 프로젝트에 연결하지 않은 저장소도 포함됩니다.**
 아래 「저장소 주소」는 설정된 git `origin` 주소 그대로입니다 — 주소에 인증 정보가 박혀 있으면(`https://user:token@…` 처럼)
-그것도 나가므로 `origin` 에 토큰을 넣지 마세요. `origin` 이 없으면 폴더 이름이 갑니다.
+그것도 나가므로 `origin` 에 토큰을 넣지 마세요. `origin` 이 없는 git 저장소는 폴더 이름이 갑니다.
+**git 이 없는 폴더는 직접 정한 폴더만 기록합니다** — AI 에게 「이 폴더도 기록해 줘」라고 하면 됩니다(이 플러그인의
+`node scripts/teamping-folders.mjs add [폴더]` 를 실행 · 빼기 `remove` · 목록 `list` · 직접 쳐도 됩니다). 정한 폴더에서는 저장소 주소 대신
+`dir:` 와 임의 id 가 가고(폴더 이름이 아닙니다) 경로는 그 폴더 기준이며, 도구 뒤 훅은 셸 명령이 그 폴더에서 바꾼 파일도 수정 시각으로 찾아 싣습니다.
+정하지 않은 git 없는 폴더는 폴더·파일 정보를 보내지 않습니다(세션 시작 브리핑은 저장소 없이 묻고, 세션 종료는 이 창의 잠금을 풉니다).
 「창 id」는 이 기계에서 Claude 창마다 만드는 해시입니다(기기·사용자 이름이 들어 있지 않습니다).
 
 | 훅 | 언제 | 보내는 것 |

@@ -119,15 +119,20 @@ if [ -z "$TOKEN" ]; then
   exit 0
 fi
 
-# 레포 식별자 — git이 없거나 remote가 없으면 디렉토리명으로 폴백
-REPO_KEY="$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || true)"
-[ -n "$REPO_KEY" ] || REPO_KEY="$(basename "$PROJECT_DIR")"
+# 레포 식별자 — git origin · git 저장소면 폴더 이름 · git 없는 폴더는 사용자가 정해 둔 폴더만(`dir:…`).
+#   정해 두지 않은 git 없는 폴더면 아무것도 묻지 않고 통과한다(repo-key.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/repo-key.sh"
+teamping_repo_key "$PROJECT_DIR" || exit 0
+REPO_KEY="$TEAMPING_RK"
+PROJECT_DIR="$TEAMPING_RK_ROOT" # 경로는 이 폴더 기준(등록 폴더면 그 뿌리 — 어느 깊이에서 열어도 같은 이름)
+export TEAMPING_RK_KIND
 
 export TEAMPING_TOKEN="$TOKEN" TEAMPING_BASE="$BASE" TEAMPING_PROJECT_DIR="$PROJECT_DIR" TEAMPING_REPO_KEY="$REPO_KEY"
 . "$(dirname "$0")/window-id.sh" # 이 창의 식별자(TEAMPING_WINDOW_ID) — 서버가 이 창의 잠금만 풀게
 # Bash 명령에서 쓰기 대상 파일을 뽑는 판정기.
 export TEAMPING_EXTRACTOR="$(dirname "${BASH_SOURCE[0]}")/bash-write-targets.mjs"
 export TEAMPING_TREES="$(dirname "${BASH_SOURCE[0]}")/repo-trees.mjs" # 같은 레포의 작업 폴더(git worktree) 목록
+export TEAMPING_FOLDERS_MOD="$(dirname "${BASH_SOURCE[0]}")/teamping-folders.mjs" # 등록 폴더 뿌리 기준 상대경로
 
 printf '%s' "$INPUT" | node --input-type=module -e '
 const fs = await import("node:fs");
@@ -158,10 +163,17 @@ const repoTrees = async () => {
   return trees;
 };
 
+// 사용자가 정해 둔 git 없는 폴더면 뿌리(디스크 표기) 기준 — 링크 표기·대소문자가 달라도 같은 파일로 본다.
+let folders = null;
+if (process.env.TEAMPING_RK_KIND === "dir") {
+  try { folders = await import(process.env.TEAMPING_FOLDERS_MOD); } catch { passThrough(); }
+}
+
 // 프로젝트 기준 상대경로로 바꾼다. 프로젝트 밖 파일이면 팀 자산이 아니므로 관여하지 않는다.
 // ⚠️ Bash는 다른 디렉토리에서 돌 수 있으므로 훅이 준 cwd를 기준으로 먼저 절대화한다.
 const toRel = (p, cwd) => {
   if (typeof p !== "string" || !p) return null;
+  if (folders) { try { return folders.relToRoot(projectDir, p, cwd); } catch { return null; } }
   if (trees) {
     try { return trees.m.resolveInTrees(p, trees.info, cwd)?.rel ?? null; } catch { return null; }
   }
@@ -181,13 +193,13 @@ if (input?.tool_name === "Bash") {
   let out;
   try { out = extract(command); } catch { passThrough(); }
   if (!(out?.targets ?? []).length) passThrough(); // 쓰기 대상이 없으면 git 도 부르지 않는다
-  await repoTrees();
+  if (!folders) await repoTrees(); // 등록 폴더(git 없음)면 작업 폴더 목록을 묻지 않는다
   paths = (out?.targets ?? []).map((t) => toRel(t, input?.cwd)).filter(Boolean);
   // 여기서 경로를 정하지 못한 명령은 커밋 전 확인(켰다면)이 이어서 본다.
   if (!paths.length) passThrough();
 } else {
   if (typeof input?.tool_input?.file_path !== "string" || !input.tool_input.file_path) passThrough();
-  await repoTrees();
+  if (!folders) await repoTrees();
   const rel = toRel(input?.tool_input?.file_path, null);
   if (!rel) passThrough();
   paths = [rel];

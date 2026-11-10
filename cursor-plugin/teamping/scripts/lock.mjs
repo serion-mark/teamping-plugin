@@ -88,14 +88,24 @@ function cleanRepoUrl(url) {
   return m[1] + m[3];
 }
 
-function repoKey(root) {
+// 레포 표식과 경로의 기준 폴더. git 저장소면 지금처럼(origin · 없으면 폴더 이름).
+// git 없는 폴더는 사용자가 정해 둔 폴더만(teamping-folders.mjs · `dir:…` · 뿌리 기준 경로) — 아니면 null = 아무것도 안 보낸다.
+async function repoOf(root) {
   try {
     const url = execFileSync("git", ["-C", root, "remote", "get-url", "origin"], {
       encoding: "utf8", timeout: 1000, stdio: ["ignore", "pipe", "ignore"],
+      // 사용자 셸의 GIT_DIR 류가 판정을 남의 저장소로 바꾸지 않게 뺀다(Claude 쪽 repo-key.sh 와 같다)
+      env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR)$/.test(k))),
     }).trim();
-    if (url) return cleanRepoUrl(url);
-  } catch { /* 폴더 이름으로 */ }
-  return path.basename(root);
+    if (url) return { repo: cleanRepoUrl(url), root };
+  } catch { /* 아래로 */ }
+  try {
+    const { resolveFolder } = await import("./teamping-folders.mjs");
+    const r = resolveFolder(root);
+    if (r.kind === "git") return { repo: path.basename(root), root };
+    if (r.kind === "dir") return { repo: r.repoKey, root: r.root };
+  } catch { /* 모르면 보내지 않는다 */ }
+  return null;
 }
 
 function locale() {
@@ -195,6 +205,10 @@ async function relativeTo(root, files, cwd) {
       const abs = path.isAbsolute(file) ? file : path.resolve(cwd || root, file);
       const r = path.relative(root, abs);
       if (r && !r.startsWith("..") && !path.isAbsolute(r)) rel = r.split(path.sep).join("/");
+      // 등록 폴더의 뿌리는 디스크 표기다 — 링크 표기(`/var` ↔ `/private/var`)·대소문자가 달라도 같은 파일로 본다
+      if (!rel) {
+        try { rel = (await import("./teamping-folders.mjs")).relToRoot(root, file, cwd); } catch { rel = null; }
+      }
     }
     if (rel) out.push(rel);
   }
@@ -279,15 +293,28 @@ async function preToolUse(input, ctx, key) {
 }
 
 // 편집 전 문을 지나지 않은 도구로 고쳤어도 그 파일을 잠근다.
+// 고친 파일은 고친 뒤 기록(observe)에도 싣는다 — git 이 없는 폴더에서도 「무엇을 고쳤나」가 남게. 보내는 것은 프로젝트 기준 상대경로뿐.
 async function afterFileEdit(input, ctx, key) {
   const paths = await relativeTo(ctx.root, typeof input.file_path === "string" && input.file_path ? [input.file_path] : [], null);
   if (!paths.length) return;
+  let locked = false;
   try {
     const file = markFile(ctx.session, "pre");
     const seen = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (Date.now() - fs.statSync(file).mtimeMs < PRE_FRESH_MS && paths.every((p) => seen.includes(p))) return;
+    locked = Date.now() - fs.statSync(file).mtimeMs < PRE_FRESH_MS && paths.every((p) => seen.includes(p));
   } catch { /* 표식 없음 — 묻는다 */ }
-  await Promise.all([ensureSession(key, ctx), lockFiles(key, ctx, { tool_name: "Write" }, paths)]);
+  // 동시에 보낸다(2초 예산 하나) — 자리 잡기 → 잠금 → 기록 순서로 건다(자리 잡기가 먼저인 이유는 위 preToolUse 와 같다).
+  const seat = ensureSession(key, ctx);
+  const lock = locked ? null : lockFiles(key, ctx, { tool_name: "Write" }, paths);
+  const observe = post(key, "observe", {
+    session_id: ctx.session,
+    window_id: ctx.window,
+    agent: "cursor",
+    tool_name: "Edit",
+    repo_key: ctx.repo,
+    changed: paths,
+  });
+  await Promise.all([seat, lock, observe]);
 }
 
 // 서버의 작업 집기 판정은 mcp__<서버>__<도구> 이름만 본다.
@@ -333,7 +360,9 @@ async function main() {
   }
   // 대화마다 고정된 값 — 시작이 두 번 가 창 수가 늘어도 종료가 이 창의 잠금을 풀 수 있다.
   const window = crypto.createHash("sha256").update(`cursor:${session}`).digest("hex").slice(0, 32);
-  const ctx = { session, window, root, repo: repoKey(root) };
+  const where = await repoOf(root);
+  if (!where) return undefined; // 정해 두지 않은 git 없는 폴더 — 조용히 통과(편집 전 문은 기본값 allow)
+  const ctx = { session, window, root: where.root, repo: where.repo };
   switch (KIND) {
     case "sessionStart":
       // 앱을 켤 때 대화가 아닌 짧은 id 로 한 번 더 온다 — 그건 자리가 아니다.

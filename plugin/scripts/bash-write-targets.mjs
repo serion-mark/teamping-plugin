@@ -51,13 +51,17 @@ const RUNTIME_EXPANDED = /[$`*?[\]{}~]/;
  * heredoc 본문을 걷어낸다 — 본문은 명령이 아니라 **입력 데이터**다.
  * 본문 속 `=>`·`>=` 를 출력 기호로 읽으면 코드 조각이 「파일 경로」가 되어 서버로 간다.
  *
- * ⭐ 원칙: **확실할 때만 지운다.** 셸 문법 전체를 흉내 내면 맥락을 잘못 읽는 순간 진짜 쓰기 줄을 본문으로 지워
- *    잠금이 빠진다(가짜 경로보다 나쁜 방향). 그래서 heredoc 시작까지의 글자에 맥락을 바꾸는 글자
- *    (따옴표 · 백틱 · `$` · `#` · 괄호·대괄호·중괄호 · 백슬래시)가 **하나도 없는** 단순한 모양만 heredoc 으로 본다 —
- *    그 자리면 셸도 반드시 heredoc 으로 읽고, 끝 표식 줄도 정확히 정해진다. 애매한 모양을 만나면 그 뒤로는
- *    **아무것도 지우지 않는다**(지우기 전과 똑같이 동작 — 본문이 샐 수는 있어도 덜 잠그지 않는다).
+ * ⭐ 원칙 둘(2026-11-10 개정 — 「파일 내용은 보내지 않는다」를 단서 없이 지키려고):
+ *    ① **확실할 때만 heredoc 으로 본다.** heredoc 시작까지의 글자에 맥락을 바꾸는 글자
+ *       (따옴표 · 백틱 · `$(`·`${` · `#` · 괄호·대괄호·중괄호 · 백슬래시)가 **하나도 없는** 단순한 모양만 —
+ *       그 자리면 셸도 반드시 heredoc 으로 읽고, 끝 표식 줄도 정확히 정해진다. 단순 변수(`$HOME` · `$1`)는 맥락을 안 바꾼다.
+ *    ② **애매하면 본문 자리부터 버린다.** heredoc 본문은 `<<` 가 있는 줄 **다음** 줄부터만 시작할 수 있다. 그래서 애매한 줄을
+ *       만나면 그 줄부터 첫 `<<` 줄까지는 명령 자리라 그대로 보고(그 줄의 진짜 쓰기 대상은 잠근다), **그 다음 줄부터는 버린다**
+ *       (본문일 수 있다 — 본문은 코드·글이라 경로로 나가면 내용이 샌다). 버렸으면 「모름」(grey) — 그 뒤의 쓰기는
+ *       고친 뒤 기록(git status · 수정 시각)과 커밋 전 확인이 받는다. 덜 잠그는 쪽으로 틀리지만, 내용은 새지 않는다.
+ *       `<<` 가 하나도 없으면 본문이 없으니 예전처럼 끝까지 본다. 한 줄 안의 산술(`$((1<<3))`)은 `<<` 로 치지 않는다.
  * 예외 하나: 커밋 메시지에 늘 쓰는 `… "$(cat <<'EOF'` ⏎ 본문 ⏎ `EOF` ⏎ `)"` 모양은 그 모양 그대로일 때만 인정한다.
- * 끝 표식 줄은 앞 탭(`<<-`)·끝 \r(Windows)을 빼고 비교. 끝 표식을 못 찾으면 원문 유지 + unclosed.
+ * 끝 표식 줄은 앞 탭(`<<-`)·끝 \r(Windows)을 빼고 비교. 끝 표식을 못 찾으면 셸처럼 명령 끝까지가 본문 — 버리고 unclosed.
  */
 export function stripHeredocBodies(command) {
   return heredocScan(command).text;
@@ -78,12 +82,20 @@ function analyzeLine(line) {
     if (c === '"') {
       const e = L.indexOf('"', i + 1);
       if (e < 0) return null;
-      if (/[$`\\]/.test(L.slice(i + 1, e))) return null;
+      const inner = L.slice(i + 1, e);
+      if (/[`\\]/.test(inner) || /\$(?![A-Za-z0-9_?#@*!$-])/.test(inner)) return null; // 단순 변수만 — $( ${ $[ 는 애매
       i = e;
       continue;
     }
     if (c === "#" && (i === 0 || /[\s;|&]/.test(L[i - 1]))) break; // 주석 — 줄 끝까지
-    if (/[$`\\(){}[\]]/.test(c)) return null;
+    if (c === "$") {
+      // 단순 변수(`$HOME` · `$1` · `$?`)는 맥락을 바꾸지 않는다. `$(` `${` `$[` `$'…'` `$"…"` 는 애매.
+      const v = /^[A-Za-z_][A-Za-z0-9_]*|^[0-9?#@*!$-]/.exec(L.slice(i + 1));
+      if (!v) return null;
+      i += v[0].length;
+      continue;
+    }
+    if (/[`\\(){}[\]]/.test(c)) return null;
     if (c === "<" && L[i + 1] === "<") {
       if (L[i + 2] === "<") { i += 2; continue; } // <<< 히어스트링 — heredoc 아님
       if (hd) return null; // 한 줄에 heredoc 둘 — 애매
@@ -103,11 +115,18 @@ function analyzeLine(line) {
 // 커밋 메시지 모양 — `… -m "$(cat <<'EOF'` (앞부분은 analyzeLine 이 확실하다고 본 것만)
 const HD_COMMIT = /^(?<pre>.*?)"\$\(cat[ \t]+<<(?<dash>-?)[ \t]*(?<q>['"]?)(?<end>[A-Za-z0-9_.\-]+)\k<q>[ \t]*\r?$/;
 
-/** @returns {{text: string, unclosed: boolean}} */
+/** heredoc 처럼 보이는 `<<`(히어스트링 `<<<` 은 아니다) — 이 줄 다음부터 본문일 수 있다. 한 줄 안에서 닫히는 산술은 뺀다. */
+const HD_LIKE = /(^|[^<])<<(?!<)/;
+// 따옴표·백슬래시·중괄호·`;`·`#` 가 든 것은 산술로 치지 않는다 — `'((' <<EOF '))'` 처럼 따옴표 속 괄호에 속아 `<<` 까지 걷지 않게
+const ARITH = /\$?\(\([^()'"`\\{};#]*\)\)/g;
+const hdLike = (line) => HD_LIKE.test(line.replace(ARITH, ""));
+
+/** @returns {{text: string, unclosed: boolean, dropped: boolean}} */
 export function heredocScan(command) {
   const lines = command.split("\n");
   const keep = [];
   let unclosed = false;
+  let dropped = false;
   const findEnd = (from, end, tabs) => {
     for (let k = from; k < lines.length; k++) {
       let l = lines[k].replace(/\r$/, "");
@@ -116,29 +135,56 @@ export function heredocScan(command) {
     }
     return -1;
   };
-  const rest = (i) => { keep.push(...lines.slice(i)); };
+  // 줄 k 가 heredoc 을 열 수 있나 — 0 = 아니다 · n = 줄 k 부터 n 줄(끝 백슬래시 줄 이음으로 `<` ⏎ `\` ⏎ `<EOF` 처럼 이어진 것까지)
+  const opensAt = (k) => {
+    let joined = "";
+    for (let j = k; j < lines.length; j++) {
+      const l = lines[j].replace(/\r$/, "");
+      const cont = /\\$/.test(l);
+      joined += cont ? l.slice(0, -1) : l;
+      if (hdLike(joined)) return j - k + 1;
+      if (!cont) return 0;
+    }
+    return 0;
+  };
+  // 애매한 맥락의 나머지(②) — 첫 `<<` 줄까지는 그대로 보고, 그 다음 줄부터 버린다.
+  const rest = (from) => {
+    for (let k = from; k < lines.length; k++) {
+      const o = opensAt(k);
+      keep.push(...lines.slice(k, k + Math.max(o, 1)));
+      if (o) { if (k + o < lines.length) dropped = true; return; }
+    }
+  };
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const c = HD_COMMIT.exec(line);
     if (c && analyzeLine(c.groups.pre)?.hd === null) {
       const g = c.groups;
       const e = findEnd(i + 1, g.end, g.dash === "-");
-      const close = e < 0 ? "" : (lines[e + 1] ?? "").replace(/\r$/, "");
+      if (e < 0) { keep.push(g.pre); unclosed = true; dropped = i + 1 < lines.length; break; } // 끝까지가 메시지 — 버린다
+      // 메시지(본문)는 i+1 ~ e-1 로 확실하다 — 걷는다. 그 뒤가 정해진 모양(`)"` + 확실한 꼬리)이 아니면 뒤는 애매한 맥락.
+      const close = (lines[e + 1] ?? "").replace(/\r$/, "");
       const tail = close.slice(2);
-      if (e < 0 || !close.startsWith(')"') || analyzeLine(tail)?.hd !== null) { if (e < 0) unclosed = true; rest(i); break; }
+      if (!close.startsWith(')"')) { keep.push(g.pre); rest(e + 1); break; }
       keep.push(g.pre + tail); // 메시지 자리는 비운다 — 남은 꼬리(리다이렉션 등)는 그대로 본다
+      const ta = analyzeLine(tail);
+      if (ta === null || ta.hd) {
+        // 꼬리가 애매하거나 heredoc 을 연다 — 꼬리 줄이 `<<` 를 품으면 그 다음부터, 아니면 첫 `<<` 줄 다음부터 버린다
+        if (hdLike(tail) || /\\$/.test(tail)) { if (e + 2 < lines.length) dropped = true; } else rest(e + 2);
+        break;
+      }
       i = e + 1;
       continue;
     }
     const a = analyzeLine(line);
-    if (a === null) { rest(i); break; } // 애매 — 여기부터 원문 그대로(지우기 전과 똑같이)
+    if (a === null) { rest(i); break; } // 애매 — ②
     keep.push(line);
     if (!a.hd) continue;
     const e = findEnd(i + 1, a.hd.end, a.hd.dash);
-    if (e < 0) { unclosed = true; rest(i + 1); break; } // 끝 표식을 못 찾음 — 원문 유지
+    if (e < 0) { unclosed = true; dropped = i + 1 < lines.length; break; } // 끝 표식이 없으면 셸처럼 끝까지가 본문 — 버린다
     i = e; // 본문과 끝 표식 줄을 건너뛴다
   }
-  return { text: keep.join("\n"), unclosed };
+  return { text: keep.join("\n"), unclosed, dropped };
 }
 
 function scan(command) {
@@ -224,9 +270,11 @@ export function extractWriteTargets(command) {
 
   const targets = new Set();
   const forms = new Set();
-  // 끝 표식을 못 찾은 heredoc 은 그 뒤를 본문으로 지웠다 — 놓쳤을 수 있으니 「모름」으로 넘겨 커밋 전 확인이 받게 한다
-  let grey = hd.unclosed;
+  // 끝 표식을 못 찾은 heredoc · 애매해서 버린 뒤쪽 — 놓쳤을 수 있으니 「모름」으로 넘겨
+  //   고친 뒤 기록과 커밋 전 확인이 받게 한다(이름 없는 셸 작업)
+  let grey = hd.unclosed || hd.dropped;
   if (hd.unclosed) forms.add("닫히지 않은 heredoc");
+  if (hd.dropped && !hd.unclosed) forms.add("애매한 heredoc(본문 버림)");
 
   /** 확실할 때만 잠근다. 실행 시점에 정해지는 이름이면 잠그지 말고 모름으로 넘긴다. */
   const addTarget = (raw) => {

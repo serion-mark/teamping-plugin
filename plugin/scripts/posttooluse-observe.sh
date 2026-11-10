@@ -7,6 +7,8 @@
 # 바뀐 파일은 명령어 텍스트가 아니라 git 에게 묻는다(git status).
 # 보내는 것은 이번 도구로 새로 바뀐 파일의 프로젝트 기준 상대경로뿐이다 — 워킹트리 전체 목록은 보내지 않는다.
 #   직전 상태는 프로젝트 밖(~/.cache/teamping/observe)에 소유자만 읽게 저장한다.
+# git 저장소가 아니면(git 을 안 쓰는 문서·디자인 폴더) observe-files.mjs 가 찾는다 — Edit 류는 도구가 준 경로,
+#   Bash 는 도구가 돈 시간 동안 수정 시각이 바뀐 프로젝트 안 파일(상한·건너뛸 폴더·홈 폴더 미스캔은 그 파일 머리말).
 #
 # 서버가 응답하지 않거나 오류가 나도 도구 실행을 방해하지 않는다. 실패는 조용히 exit 0.
 #
@@ -23,7 +25,7 @@ esac
 case "$LEVEL" in lv0 | lv1) exit 0 ;; esac
 
 command -v node >/dev/null 2>&1 || exit 0
-command -v git >/dev/null 2>&1 || exit 0
+# git 은 없어도 된다 — git 저장소가 아니면 수정 시각으로 찾는다(observe-files.mjs).
 
 INPUT="$(cat)"
 [ -n "$INPUT" ] || exit 0
@@ -47,18 +49,26 @@ TOKEN="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_TOKEN=//p')"
 BASE="$(printf '%s\n' "$CREDS" | sed -n 's/^TEAMPING_BASE=//p')"
 [ -n "$TOKEN" ] || exit 0
 
-REPO_KEY="$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || true)"
-[ -n "$REPO_KEY" ] || REPO_KEY="$(basename "$PROJECT_DIR")"
+# 레포 표식 — git 없는 폴더는 사용자가 정해 둔 폴더만(정하지 않았으면 아무것도 안 보낸다 · repo-key.sh)
+. "$(dirname "${BASH_SOURCE[0]}")/repo-key.sh"
+teamping_repo_key "$PROJECT_DIR" || exit 0
+REPO_KEY="$TEAMPING_RK"
+NONGIT_ROOT=""
+[ "$TEAMPING_RK_KIND" = "dir" ] && NONGIT_ROOT="$TEAMPING_RK_ROOT"
 
 # 여기서부터 백그라운드에서 돈다 — git·네트워크 작업이 도구 실행을 늦추지 않게.
 export TEAMPING_TOKEN="$TOKEN" TEAMPING_BASE="$BASE" TEAMPING_PROJECT_DIR="$PROJECT_DIR" TEAMPING_REPO_KEY="$REPO_KEY"
 export TEAMPING_TREES="$(dirname "${BASH_SOURCE[0]}")/repo-trees.mjs" # 같은 레포의 작업 폴더 목록(락 훅과 같은 파일)
 export TEAMPING_INBOX="$(dirname "${BASH_SOURCE[0]}")/inbox-local.mjs" # 이 창에 온 팀핑 연락을 맡아 두는 곳
+export TEAMPING_OBSERVE_FILES="$(dirname "${BASH_SOURCE[0]}")/observe-files.mjs" # git 저장소가 아닐 때 바뀐 파일 찾기
+export TEAMPING_NONGIT_ROOT="$NONGIT_ROOT" # 등록 폴더의 뿌리(git 저장소면 빈 값)
 printf '%s' "$INPUT" | nohup node -e '
   const fs = require("fs"), os = require("os"), path = require("path"), crypto = require("crypto");
   const { execFileSync } = require("child_process");
   let input = "";
   process.stdin.on("data", (d) => (input += d));
+  const hookAt = Date.now(); // 도구가 끝난 직후 — 수정 시각 방식의 끝 시각
+  setTimeout(() => process.exit(0), 15000).unref(); // 네트워크가 늦어도 백그라운드에 쌓이지 않게(파일 읽기가 막힌 동안엔 그 뒤에 끝난다)
   process.stdin.on("end", async () => {
     try {
       const ev = JSON.parse(input);
@@ -71,7 +81,19 @@ printf '%s' "$INPUT" | nohup node -e '
       let changed = [];
       // 이번 Bash 로 새로 만든 커밋 번호. 없으면 빈 배열.
       let commits = [];
-      if (MUTATORS.test(tool) && session) {
+      // 사용자가 정해 둔 git 없는 폴더면(뿌리가 있으면) 수정 시각 방식(observe-files.mjs) — 경로는 그 뿌리 기준.
+      //   git 저장소면 아래 git status 방식 그대로. 판정은 셸(repo-key.sh)이 이미 했다.
+      const nongitRoot = process.env.TEAMPING_NONGIT_ROOT || "";
+      if (MUTATORS.test(tool) && session && nongitRoot) {
+        let files = null;
+        try { files = await import(require("url").pathToFileURL(process.env.TEAMPING_OBSERVE_FILES).href); } catch { files = null; }
+        // git 상태 파일은 쓰지 않는다 — 나중에 git init 하면 그때 첫 관측이 기준선이 된다.
+        //   대신 「이 세션의 직전 도구가 끝난 시각」만 따로 둔다(직전 도구가 바꾼 파일을 이번 몫으로 적지 않게).
+        const lastFile = path.join(os.homedir(), ".cache", "teamping", "observe",
+          // 서브에이전트는 부모와 같은 세션 id 를 쓴다 — 에이전트마다 따로 둬야 병렬 서브에이전트가 서로의 창을 줄이지 않는다
+          crypto.createHash("sha256").update(`${dir}::${session}::${typeof ev.agent_id === "string" ? ev.agent_id : ""}::nogit`).digest("hex").slice(0, 32) + ".json");
+        try { changed = files.nonGitChanged(nongitRoot, ev, hookAt, { lastAt: files.takeLastAt(lastFile, hookAt) }).slice(0, 50); } catch { changed = []; }
+      } else if (MUTATORS.test(tool) && session) {
         const statusOf = (base) => {
           let now = [];
           try {

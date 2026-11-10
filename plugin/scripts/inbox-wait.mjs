@@ -77,7 +77,7 @@ async function main(ev) {
     // 0.2.26 — 창 제목(제목을 붙인 창만 입력에 온다 · 사람이 쓴 글자라 서버가 다시 정리한다). 길게 보내지 않는다.
     if (typeof ev.session_title === "string") body.session_title = Array.from(ev.session_title).slice(0, 200).join("");
     const { status, j } = await ask(base, token, body, 5);
-    if (status === 401 || status === 403 || (j && j.ok === false && STOP_WHY.has(j.why))) { rest(p, REST_MS); return 0; }
+    if (status === 401 || status === 402 || status === 403 || (j && j.ok === false && STOP_WHY.has(j.why))) { rest(p, REST_MS); return 0; }
     if (status === 200 && j && j.ok === true) afterServer(p, acks, Array.isArray(j.items) ? j.items : []);
     return 0;
   }
@@ -104,7 +104,8 @@ async function main(ev) {
       continue;
     }
     const { status, j } = res;
-    if (status === 401 || status === 403) { rest(p, REST_MS); return 0; }
+    // 402 = 그 회사 이용이 끝났다(결제 전까지 안 바뀐다) — 401·403 처럼 쉰다. 30초마다 다시 물으면 창 하나가 50분에 100번 가까이 묻는다.
+    if (status === 401 || status === 402 || status === 403) { rest(p, REST_MS); return 0; }
     if (status === 429) { await sleep(60 * UNIT_MS); continue; }
     if (!j || status !== 200) { await sleep(30 * UNIT_MS); continue; }
     if (j.ok === false) {

@@ -39,8 +39,10 @@ creds() {
   TEAMPING_TOKEN="$(printf '%s\n' "$c" | sed -n 's/^TEAMPING_TOKEN=//p')"
   TEAMPING_BASE="$(printf '%s\n' "$c" | sed -n 's/^TEAMPING_BASE=//p')"
   [ -n "$TEAMPING_TOKEN" ] || return 1
-  TEAMPING_REPO_KEY="$(git -C "$TEAMPING_PROJECT_DIR" remote get-url origin 2>/dev/null || true)"
-  [ -n "$TEAMPING_REPO_KEY" ] || TEAMPING_REPO_KEY="$(basename "$TEAMPING_PROJECT_DIR")"
+  # git 없는 폴더는 사용자가 정해 둔 폴더만(repo-key.sh) — 아니면 받은편지함도 서버에 묻지 않는다
+  . "$HERE/repo-key.sh"
+  teamping_repo_key "$TEAMPING_PROJECT_DIR" || return 1
+  TEAMPING_REPO_KEY="$TEAMPING_RK"
   export TEAMPING_TOKEN TEAMPING_BASE TEAMPING_REPO_KEY
 }
 
