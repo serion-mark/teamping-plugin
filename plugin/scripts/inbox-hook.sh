@@ -27,6 +27,10 @@ INPUT="$(cat)"
 [ -n "$INPUT" ] || exit 0
 # Cursor 는 이 플러그인의 훅도 돌린다. Cursor 에서는 Cursor 조각이 잠근다 — 여기서 또 부르면 도구 이름이 틀어진다.
 case "$INPUT" in *'"cursor_version":'*) exit 0 ;; esac
+# Grok Build 도 이 플러그인의 훅을 돌린다 — 이 훅의 기능(받은편지함·세션 안내·기록 알림)은 Grok 에서 아직 재지 않았다 → 건너뛴다(grok-input.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/grok-input.sh"
+teamping_grok_input
+[ "${TEAMPING_AGENT:-}" = "grok" ] && exit 0
 [ -n "${TEAMPING_HOOK_DEBUG:-}" ] && printf '%s' "$INPUT" | "$HERE/hook-debug.sh" 2>/dev/null
 
 # 이 창 몫으로 맡아 둔 연락이 있나 — 없으면 node 를 띄우지 않는다(대부분의 턴이 여기서 끝난다).

@@ -31,6 +31,9 @@ INPUT="$(cat)"
 [ -n "$INPUT" ] || exit 0
 # Cursor 는 이 플러그인의 훅도 돌린다. Cursor 에서는 Cursor 조각이 잠근다 — 여기서 또 부르면 도구 이름이 틀어진다.
 case "$INPUT" in *'"cursor_version":'*) exit 0 ;; esac
+# Grok Build 도 이 플러그인의 훅을 돌린다 — Grok 이면 도구 이름을 Claude 이름으로 바꾸고 기록 이름을 grok 으로(grok-input.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/grok-input.sh"
+teamping_grok_input
 
 # 진단 모드 — TEAMPING_HOOK_DEBUG 가 켜져 있을 때만 받은 입력의 구조를 남긴다(값은 남기지 않는다).
 [ -n "${TEAMPING_HOOK_DEBUG:-}" ] && printf '%s' "$INPUT" | "$(dirname "$0")/hook-debug.sh" 2>/dev/null
@@ -39,7 +42,8 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 
 # 지난번 서버 응답으로 맡아 둔 이 창 몫의 팀핑 연락이 있으면 지금 AI 에게 넣는다(없으면 node 를 띄우지 않는다).
 . "$(dirname "${BASH_SOURCE[0]}")/inbox-pending.sh"
-if teamping_inbox_has_pending "$INPUT"; then
+# ⛔ Grok 에서는 받은편지함을 건너뛴다 — Grok 은 이 훅의 출력을 AI 에게 전하지 않아 맡아 둔 줄이 지워지기만 한다.
+if [ "${TEAMPING_AGENT:-}" != "grok" ] && teamping_inbox_has_pending "$INPUT"; then
   printf '%s' "$INPUT" | TEAMPING_PROJECT_DIR="$PROJECT_DIR" node "$(dirname "${BASH_SOURCE[0]}")/inbox-show.mjs" PostToolUse 2>/dev/null
 fi
 
@@ -329,7 +333,9 @@ printf '%s' "$INPUT" | nohup node -e '
       // 팀핑 연락 — 이미 AI 에게 넣은 줄의 id 를 「받았다」로 함께 보낸다(서버가 같은 줄을 다시 주지 않게).
       //   팀핑에 글을 쓴 도구면 그 글 id 를 보낸다 — 그 글에 답장이 오면 이 창으로 오게.
       let inbox = null, inboxPaths = null, inboxAck = [];
+      const grokRun = process.env.TEAMPING_AGENT === "grok"; // Grok — 받은편지함을 받지도 「받았다」를 보내지도 않는다(위 셸과 같은 결)
       try {
+        if (grokRun) throw new Error("grok");
         inbox = await import(require("url").pathToFileURL(process.env.TEAMPING_INBOX).href);
         inboxPaths = inbox.inboxPaths(dir, session); // 세션 id 가 모양에 안 맞으면 null
         inboxAck = inbox.acksToSend(inboxPaths);
@@ -346,7 +352,7 @@ printf '%s' "$INPUT" | nohup node -e '
         headers: { "content-type": "application/json", authorization: `Bearer ${process.env.TEAMPING_TOKEN}` },
         body: JSON.stringify({
           session_id: session,
-          agent: "claude-code",
+          agent: process.env.TEAMPING_AGENT === "grok" ? "grok" : "claude-code", // Grok Build 안이면 grok(grok-input.sh)
           tool_name: tool,
           repo_key: process.env.TEAMPING_REPO_KEY,
           changed,

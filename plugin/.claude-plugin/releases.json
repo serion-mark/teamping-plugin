@@ -180,6 +180,11 @@
       "version": "0.2.35",
       "sha256": "f292d38bf55b3a089b56fe3dcb1bc144f17c318060f79f03167bc01eaa30b9fe",
       "note": "Claude Code 를 로그인(OAuth)으로 연결한 레포도 자동 잠금이 돈다 — 설정 파일에 열쇠가 없으면 그 레포의 자동 잠금 열쇠(~/.config/teamping/hookkey · 훅 문만 연다 · Codex 조각과 같은 파일)를 쓰고, 없으면 세션 시작에 켜는 명령(hook-key-receive.mjs · 브라우저 허용 한 번)을 알린다. 로그인 항목을 찾으면 다른 범위의 열쇠로 넘어가지 않는다."
+    },
+    {
+      "version": "0.2.36",
+      "sha256": "8b5c53a9b7ca847248d8b81799b88285e9d4285f7768e68565774cb2d9767994",
+      "note": "Grok Build(xAI)가 이 플러그인의 훅을 돌릴 때(Grok 은 Claude Code 플러그인을 그대로 읽는다) Grok 의 도구 이름(write·search_replace·run_terminal_command)을 알아보고, 잠금 기록 이름을 grok 으로 보내며, 열쇠는 Grok 설정(~/.grok/config.toml)에서 먼저 찾고(그 항목이 있는데 못 읽으면 멈춘다 · 없으면 ~/.claude.json 의 이 폴더 항목·로그인 연결만(최상위 복사 열쇠는 Grok 에서 안 쓴다) · 레포 .mcp.json 은 Grok 에서 안 믿는다), Grok 의 MCP 도구 이름(teamping__…)도 알아본다. 판정은 환경(GROK_HOOK_EVENT)과 입력 최상위 hookEventName 이 둘 다 있을 때만. 받은편지함·세션 안내 훅은 Grok 에서 아직 재지 않아 건너뛴다."
     }
   ]
 }

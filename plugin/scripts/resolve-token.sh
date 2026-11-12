@@ -6,6 +6,10 @@
 #   ① $CLAUDE_PROJECT_DIR/.mcp.json   프로젝트 설정
 #   ② ./.mcp.json                     현재 폴더
 #   ③ ~/.claude.json                  사용자 설정 — .projects["<프로젝트>"].mcpServers 먼저, 없으면 최상위 .mcpServers
+#   ⓖ Grok Build 안이면(TEAMPING_AGENT=grok · grok-input.sh) **맨 먼저** ~/.grok/config.toml 의 [mcp_servers.teamping]
+#      ($GROK_HOME 이 있으면 그 안 · grok-config.mjs) — Grok 에 넣은 열쇠가 그 Grok 작업의 열쇠다. 그 표가 있는데 못 읽으면 멈춘다.
+#      표가 없으면 ③(사용자 본인의 ~/.claude.json)만 본다 — ⛔ Grok 에서는 레포 안 .mcp.json(①②)을 믿지 않는다.
+#      캐시도 Claude 와 따로 둔다(파일 이름 끝 __grok) — 같은 폴더에서 Claude 와 Grok 이 서로의 열쇠를 쓰지 않게.
 #
 # ⭐ 0.2.35 — 로그인 연결: 처음 찾은 teamping 항목에 열쇠(Authorization)가 없고 주소가 `https://<호스트>/mcp` 모양이면
 #   Claude Code 가 로그인(OAuth)으로 붙인 연결이다. 그 열쇠는 Claude Code 금고에 있어 훅이 못 쓴다 → 이 레포의 **자동 잠금 열쇠**
@@ -37,15 +41,24 @@ _safe="${TEAMPING_PROJECT_DIR//\//_}"
 _safe="${_safe//[^A-Za-z0-9._-]/_}"
 # 경로가 길면 끝 200자만 쓴다.
 if [ "${#_safe}" -gt 200 ]; then _safe="${_safe: -200}"; fi
+_grok_cfg=""
+if [ "${TEAMPING_AGENT:-}" = "grok" ]; then
+  _safe="${_safe}__grok"
+  _grok_cfg="${GROK_HOME:-${HOME:-}/.grok}/config.toml"
+fi
 _cache="$_cache_dir/$_safe"
 _owner_line="TEAMPING_PROJECT=$TEAMPING_PROJECT_DIR"
+# Grok 이면 주인 줄에 Grok 설정 경로와 있는지를 함께 적는다 — 그 파일을 지우거나 GROK_HOME 을 바꾸면 캐시를 버리게.
+if [ -n "$_grok_cfg" ]; then
+  if [ -e "$_grok_cfg" ]; then _owner_line="$_owner_line|GROK_CFG=$_grok_cfg|1"; else _owner_line="$_owner_line|GROK_CFG=$_grok_cfg|0"; fi
+fi
 
 # ── 캐시 확인: 설정 파일 중 하나라도 캐시보다 새로우면 다시 찾는다.
 if [ -f "$_cache" ] && [ -r "$_cache" ]; then
   _stale=0
   _found_src=0
   _line=""
-  for _src in "$TEAMPING_PROJECT_DIR/.mcp.json" "$PWD/.mcp.json" "${HOME:-}/.claude.json"; do
+  for _src in "$TEAMPING_PROJECT_DIR/.mcp.json" "$PWD/.mcp.json" "${HOME:-}/.claude.json" ${_grok_cfg:+"$_grok_cfg"}; do
     if [ -e "$_src" ]; then
       _found_src=1
       if [ "$_src" -nt "$_cache" ]; then _stale=1; break; fi
@@ -93,6 +106,8 @@ command -v node >/dev/null 2>&1 || exit 0
 _out="$(
 TEAMPING_PROJECT_DIR="$TEAMPING_PROJECT_DIR" \
 TEAMPING_HOME="${HOME:-}" \
+TEAMPING_GROK_CFG="$_grok_cfg" \
+TEAMPING_GROKCFG_MJS="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/grok-config.mjs" \
 TEAMPING_HOOKKEY_MJS="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/hook-key.mjs" \
 node --input-type=module -e '
 const fs = await import("node:fs");
@@ -146,17 +161,51 @@ const hookLines = (url) => {
 };
 
 const candidates = [];
-candidates.push(() => pick(read(path.join(projectDir, ".mcp.json"))));
-candidates.push(() => pick(read(path.resolve(".mcp.json"))));
-if (home) {
+const grokMode = Boolean(process.env.TEAMPING_GROK_CFG);
+let grokStop = false;
+// Grok Build 안이면(grok-config.mjs) — ①Grok 설정의 [mcp_servers.teamping] 이 그 Grok 작업의 열쇠다.
+//   그 표가 있는데 열쇠를 못 읽으면 **멈춘다**(다른 열쇠로 넘어가면 엉뚱한 프로젝트에 잠기는데 아무도 모른다).
+//   ②그 표가 없을 때만 사용자 본인의 Claude 설정(~/.claude.json)의 **이 폴더 항목** 또는 로그인 연결(레포별 자동 잠금 열쇠)로.
+//   ⛔ ~/.claude.json 최상위의 복사 열쇠는 Grok 에서 쓰지 않는다 — 다른 회사의 열쇠일 수 있어 엉뚱한 곳에 조용히 잠긴다.
+//   ⛔ 레포 안 .mcp.json 은 Grok 에서 믿지 않는다
+//   (남이 커밋한 파일의 주소·열쇠로 경로가 새는 길 · 로그인 갈래와 같은 규칙).
+if (grokMode) {
+  let text = null;
+  try { text = fs.readFileSync(process.env.TEAMPING_GROK_CFG, "utf8"); } catch (e) {
+    text = null;
+    // 파일은 있는데 못 읽는다(권한 · 폴더) — 무엇이 들었는지 모르니 넘어가지 않는다
+    if (e && e.code !== "ENOENT" && e.code !== "ENOTDIR") grokStop = true;
+  }
+  if (text !== null) {
+    try {
+      const { pathToFileURL } = await import("node:url");
+      const g = await import(pathToFileURL(process.env.TEAMPING_GROKCFG_MJS ?? "").href);
+      const k = g.grokKey(text, process.env);
+      if (k) candidates.push(() => k);
+      // 팀핑 항목이 있는데 못 읽었다(낯선 모양 · 따옴표 키 · 인라인 표) — 넘어가지 않는다
+      else if (g.hasTeampingTable(text)) grokStop = true;
+    } catch {
+      grokStop = true; // 읽기 모듈을 못 불렀다 — 그 파일에 무엇이 있는지 모르니 넘어가지 않는다
+    }
+  }
+} else {
+  candidates.push(() => pick(read(path.join(projectDir, ".mcp.json"))));
+  candidates.push(() => pick(read(path.resolve(".mcp.json"))));
+}
+if (home && !grokStop) {
   const user = read(path.join(home, ".claude.json"));
   // 프로젝트별 등록이 먼저다 — 워크스페이스마다 다른 토큰을 쓸 수 있다.
   candidates.push(() => pick(user?.projects?.[projectDir], true));
-  candidates.push(() => pick(user, true));
+  // Grok 에서는 최상위 항목 중 로그인 연결(레포별 자동 잠금 열쇠로 가는 것)만 — 최상위 복사 열쇠는 위 ⛔ 대로 안 쓴다.
+  candidates.push(() => {
+    const f = pick(user, true);
+    return grokMode && f && f.oauth === undefined ? null : f;
+  });
 }
+if (grokStop) candidates.length = 0;
 
 for (const get of candidates) {
-  const found = get();
+  const found = await get();
   if (found) {
     process.stdout.write(found.oauth !== undefined ? hookLines(found.oauth) : `TEAMPING_TOKEN=${found.token}\nTEAMPING_BASE=${found.base}\n`);
     break;

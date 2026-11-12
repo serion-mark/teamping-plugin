@@ -36,6 +36,9 @@ command -v node >/dev/null 2>&1 || exit 0
 if [ -t 0 ]; then INPUT=""; else INPUT="$(cat)"; fi
 # Cursor 는 이 플러그인의 훅도 돌린다. Cursor 에서는 Cursor 조각이 잠근다 — 여기서 또 부르면 도구 이름이 틀어진다.
 case "$INPUT" in *'"cursor_version":'*) exit 0 ;; esac
+# Grok Build 도 이 플러그인의 훅을 돌린다 — Grok 이면 도구 이름을 Claude 이름으로 바꾸고 기록 이름을 grok 으로(grok-input.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/grok-input.sh"
+teamping_grok_input
 case "$INPUT" in
   *'"tool_name":"Bash"'* | *'"tool_name": "Bash"'*)
     # 명령 문자열만 떼어낸다. 떼지 못하면 판정기로 넘긴다(느려질 뿐 놓치지 않는다).
@@ -109,7 +112,15 @@ if [ -z "$TOKEN" ]; then
   if [ ! -e "$_mark" ]; then
     : > "$_mark" 2>/dev/null || true
     # i18n-exempt: 열쇠가 없으면 서버 문구를 받을 수 없어 셸이 직접 말한다(한/영).
-    if printf '%s\n' "$CREDS" | grep -qx 'TEAMPING_KIND=oauth_nokey' && printf '%s\n' "$CREDS" | grep -q '^TEAMPING_HOOK_FILE='; then
+    if [ "${TEAMPING_AGENT:-}" = "grok" ]; then
+      # Grok — 열쇠는 ~/.grok/config.toml 에서 찾는다(레포 .mcp.json 은 Grok 에서 안 믿는다 · resolve-token.sh)
+      if [ "${TEAMPING_LANG:-ko}" = "en" ]; then
+        printf '%s' '{"systemMessage":"⚠️ Teamping: this edit was not locked — no key found in [mcp_servers.teamping] of ~/.grok/config.toml. Use the shape from \"F. Grok Build\" on teamping.dev/connect."}'
+      else
+        # i18n-exempt: 열쇠가 없으면 서버 문구를 받을 수 없다(Grok) — 바로 위가 영문.
+        printf '%s' '{"systemMessage":"⚠️ 팀핑: 이 편집은 잠기지 않았습니다 — ~/.grok/config.toml 의 [mcp_servers.teamping] 에서 열쇠를 읽지 못했어요. teamping.dev/connect 「F. Grok Build」의 모양으로 넣으세요."}'
+      fi
+    elif printf '%s\n' "$CREDS" | grep -qx 'TEAMPING_KIND=oauth_nokey' && printf '%s\n' "$CREDS" | grep -q '^TEAMPING_HOOK_FILE='; then
       # i18n-exempt: 0.2.35 로그인 연결인데 이 레포 자동 잠금 열쇠가 없다 — 켜는 법은 세션 시작 안내에 있다(셸이 직접 말한다 · 한/영).
       if [ "${TEAMPING_LANG:-ko}" = "en" ]; then
         printf '%s' '{"systemMessage":"⚠️ Teamping: this edit was not locked — auto-lock is not on for this repo yet (sign-in connection). Lock with claim_file, or ask your AI to \"turn on Teamping auto-lock for this repo\"."}'
@@ -238,7 +249,7 @@ try {
     body: JSON.stringify({
       session_id: input.session_id,
       window_id: process.env.TEAMPING_WINDOW_ID || undefined, // 어느 창이 잡았나
-      agent: "claude-code",
+      agent: process.env.TEAMPING_AGENT === "grok" ? "grok" : "claude-code", // Grok Build 안이면 grok(grok-input.sh)
       locale: process.env.TEAMPING_LANG || "ko",
       tool_name: input.tool_name,
       file_path: paths[0],       // 옛 서버와도 말이 통하게 첫 경로는 그대로 둔다

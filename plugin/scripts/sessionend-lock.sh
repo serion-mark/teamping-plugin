@@ -24,6 +24,9 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 INPUT="$(cat)"
 # Cursor 는 이 플러그인의 훅도 돌린다. Cursor 에서는 Cursor 조각이 잠근다 — 여기서 또 부르면 도구 이름이 틀어진다.
 case "$INPUT" in *'"cursor_version":'*) exit 0 ;; esac
+# Grok Build 도 이 플러그인의 훅을 돌린다 — Grok 이면 도구 이름을 Claude 이름으로 바꾸고 기록 이름을 grok 으로(grok-input.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/grok-input.sh"
+teamping_grok_input
 . "$(dirname "${BASH_SOURCE[0]}")/inbox-pending.sh"
 teamping_inbox_forget "$INPUT"
 # 토큰·서버 주소는 resolve-token.sh 가 찾는다(프로젝트 .mcp.json → 사용자 ~/.claude.json).

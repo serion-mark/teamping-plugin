@@ -53,6 +53,11 @@ HOOK_INPUT=""
 [ -t 0 ] || HOOK_INPUT="$(cat 2>/dev/null || true)"
 # Cursor 는 이 플러그인의 훅도 돌린다. Cursor 에서는 Cursor 조각이 자리를 잡는다.
 case "$HOOK_INPUT" in *'"cursor_version":'*) exit 0 ;; esac
+# Grok Build 도 이 플러그인의 훅을 돌린다 — 세션 안내는 Grok 에서 아직 재지 않았다 → 건너뛴다(grok-input.sh).
+INPUT="$HOOK_INPUT"
+. "$(dirname "${BASH_SOURCE[0]}")/grok-input.sh"
+teamping_grok_input
+[ "${TEAMPING_AGENT:-}" = "grok" ] && exit 0
 
 # 진단 모드 — TEAMPING_HOOK_DEBUG 가 켜져 있을 때만 훅 입력의 구조를 기록한다(hook-debug.sh).
 [ -n "${TEAMPING_HOOK_DEBUG:-}" ] && [ -n "$HOOK_INPUT" ] && \
