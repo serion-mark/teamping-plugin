@@ -1,28 +1,47 @@
-# Teamping plugin for Claude Code
+<p align="center"><img src="https://raw.githubusercontent.com/serion-mark/teamping-plugin/main/plugin/assets/teamping-logo.svg" width="72" alt="Teamping"></p>
 
-> 한국어 안내는 아래에 있습니다. → [한국어](#한국어)
+# Teamping — plugin for Claude Code, Cursor, Antigravity and Grok
 
-[Teamping](https://teamping.dev) is a team workspace for AI agents. This plugin connects Claude Code to it:
-when a session opens, your team's situation is shown automatically; when you are about to edit a file a
-teammate's agent is already working on, the edit is stopped before it happens (file lock).
+Everyone keeps the AI they already use. Once each person connects it, the team lead's screen shows
+who is working on what. With the plugin on, an edit stops before it touches a file a teammate's agent
+is holding.
+
+*This repository holds the plugins. The service runs at [teamping.dev](https://teamping.dev).*
+
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+[한국어](https://github.com/serion-mark/teamping-plugin/blob/main/plugin/README.ko.md)
+
+## What changes
+
+| | Today | With Teamping |
+|---|---|---|
+| The lead wants to know what the team is doing | Asks each person, who asks their own AI, and writes it up | One screen lists who is working on what, in which project |
+| Two agents open the same file | Both edit it; you find out when you merge | The one that comes second stops before editing and says who is holding the file |
+| A teammate's agent needs yesterday's decision | Someone pastes it across | Their agent reads it from the same project |
 
 ## Install
 
-```
-/plugin marketplace add serion-mark/teamping-plugin
-/plugin install teamping@teamping
-```
+| Tool | Connect (MCP) | Auto-lock plugin |
+|---|---|---|
+| Claude Code | `claude mcp add --transport http teamping https://teamping.dev/mcp` then sign in | `/plugin marketplace add serion-mark/teamping-plugin`<br>`/plugin install teamping@teamping` |
+| Codex | `codex mcp add teamping --url https://teamping.dev/mcp` then sign in | not available yet |
+| Cursor | key from Teamping | see [cursor-plugin/teamping](https://github.com/serion-mark/teamping-plugin/blob/main/cursor-plugin/teamping/README.md) |
+| Antigravity | sign in (checked on CLI 1.5.8) or key | key connections only — see [antigravity-plugin/teamping](https://github.com/serion-mark/teamping-plugin/blob/main/antigravity-plugin/teamping/README.md) |
+| Grok Build | key from Teamping | `grok plugin marketplace add serion-mark/teamping-plugin`<br>`grok plugin install teamping@teamping-plugin --trust` |
+| ChatGPT, Claude chat | add `https://teamping.dev/mcp` and sign in | not needed — chat apps don't edit files |
 
-During install you choose the automation level (see below). After install, one more step:
-in the Teamping web app, open the **Live** tab and connect this repository to a project.
-Until it is connected, the hooks pass through silently. Hooks are read when a window opens,
-so the plugin takes effect from the next new window.
+Signing in is also where you create an account if you don't have one yet.
+Step-by-step setup for each tool: https://teamping.dev/connect
 
-**Prerequisites**
+Want your AI to do the setup instead? Give it this address and say "read this and let's start Teamping":
+https://teamping.dev/guide.md
 
-- A Teamping account and a project. The plugin reuses the MCP token that is already in your
-  project's `.mcp.json` (server URL + Bearer token). It does not store a token of its own.
-- `node` (installed with Claude Code), plus `jq` and `curl` for the session-start briefing. Without them the hooks do nothing and never block your session.
+**What you need:** a Teamping project, and `node` (it comes with Claude Code) plus `jq` and `curl`
+for the session-start briefing. Without them the hooks do nothing and never block your session.
+
+After you install the Claude Code plugin you pick an automation level (below), then connect this
+repository to a project in the Teamping web app, on the **Live** tab. Until it is connected the hooks
+pass through silently. Hooks are read when a window opens, so it takes effect from the next window.
 
 ## Automation level (`automation_level`, chosen at install)
 
@@ -30,225 +49,31 @@ so the plugin takes effect from the next new window.
 |---|---|---|
 | `lv0` | Off | none |
 | `lv1` | Manual. Teamping moves only when you ask for it | none (prompt only) |
-| `lv2` | Auto-read. Team situation on session start, presence, **file locks**, observation, **Teamping notices for this window** | SessionStart · PreToolUse · PostToolUse · UserPromptSubmit · Stop · SessionEnd |
+| `lv2` | Auto-read. Team situation on session start, who is online, file locks, a record of the files your AI edits, Teamping notices for this window | SessionStart · PreToolUse · PostToolUse · UserPromptSubmit · Stop · SessionEnd |
 | `lv3` | Active. lv2 plus a "did you record it?" reminder when a response ends | lv2 + the Stop reminder |
 
-## What leaves your machine
+## What this plugin sends
 
-The hooks send **paths, tool names, timestamps and order** — never file contents. (Locally they read your
-git status and your `.mcp.json` to find the token.) They run in **every repository where the plugin is
-enabled, including ones not yet connected to a Teamping project.**
-"Repository address" below is your git `origin` URL exactly as configured — if credentials are embedded in it
-(like `https://user:token@…`) they go too, so keep tokens out of `origin`; a git repository with no `origin` sends
-the folder name. **Folders without git are recorded only if you chose them** — tell your AI "record this folder too"
-(it runs `node scripts/teamping-folders.mjs add [folder]` from this plugin; `remove` and `list` also work, and you can
-run it yourself). For a chosen folder the repository address is `dir:` plus a random id (never the folder name) and
-paths are relative to that folder; the "after a tool" hook also lists files the shell command changed there (by
-modification time). Folders without git that you did not choose send no folder or file information (the session-start
-briefing is still asked for without a repository, and session end still releases this window's locks). "Window id" is a random-looking hash made on this machine per Claude window (no machine or user name in it).
+File paths, tool names, timestamps and the order things happened in. **Never file contents** — and
+never your source code, command text, tool output, your conversation, prompts, environment variables,
+API keys or commit messages. Every field it does send is listed in [DATA.md](https://github.com/serion-mark/teamping-plugin/blob/main/plugin/DATA.md).
 
-| Hook | When | Sent |
-|---|---|---|
-| `SessionStart` | window opens | session id, window id, repository address, agent name (or the channel you configured), this plugin's version, your time-zone offset, display language, and one word for this repo's pre-commit check (`off`·`on`·`declined`·`custom`) |
-| `PreToolUse` | right before an edit (`Edit`·`Write`·`MultiEdit`·`NotebookEdit`; `Bash` write targets) | session id, window id, agent name, repository address, file paths (relative), tool name, display language |
-| `PostToolUse` | after any tool | session id, agent name, repository address, tool name, list of changed files (relative paths, max 50), size of the tool result in bytes, **SHAs of new commits in this repo (max 20 — SHAs only, never messages or diffs)**, the sub-agent id when a sub-agent made the call, the Teamping card id when the AI has just claimed a card, the ids of Teamping notices this window has already shown the AI (so they aren't sent again), and the id of the Teamping message when the AI has just posted one |
-| `SessionEnd` | window closes | session id, window id, the time it was sent |
-| `UserPromptSubmit` | you send a message | session id, repository address, ids of notices already shown, and the window's title if you gave it one (shown as the window's name to your team and in your own Teamping notices) — never your message |
-| `Stop` | response ends | while the window is idle, waits for a Teamping notice: session id, repository address, ids of notices already shown (otherwise nothing — local message only) |
+## If something fails
 
-Two scripts in this plugin are **not hooks** — they only run if you wire them in yourself:
-
-| Script | When | Sent |
-|---|---|---|
-| `precommit-lock.sh` | the git pre-commit hook, after you install it | repository address, list of staged file paths |
-| `notify-deploy.sh` | when you call it from your own deploy | repository address, the deployed commit SHA, and the SHAs of the commits in that range (up to 200) — SHAs only, never commit messages or diffs |
-
-**Teamping notices for this window.** When someone replies to a message this window posted, responds to / confirms the card this window claimed, or another AI addresses a message to this window, Teamping keeps a one-line notice for this window (who · what · the id · which tool to read it with — never the message itself). The hooks add that line to the AI's context after a tool, next to your message, or once when a response ends; while the window is idle a background `Stop` hook waits for it and wakes the window (`asyncRewake` · at most 6 times in an hour without you typing — counting restarts when you type, but never more than 20 times in an hour · gives up after 50 minutes until the next response). The AI is told to tell you first and ask before acting on it. Lines waiting to be shown and ids already shown are kept in `~/.config/teamping/inbox/` (folder 0700 · files 0600 · one set per window · cleared after 8 days). Nothing is sent to the AI from inside a sub-agent.
-
-**Setup resume.** When the setup kit needs an app restart, the AI leaves a copy of the kit plus the step to resume and the copy's hash in `~/.config/teamping/setup/<per-repo key>/` on this computer (the repo is untouched · no secrets). In the reopened session `SessionStart` reads it and tells the AI to continue from that step only if the hash and the repo path match — nothing is sent. Notes older than 7 days aren't followed; they're cleared and mentioned once. The AI deletes the note when setup is done.
-
-**Grok Build (xAI, 0.2.36).** Grok Build reads Claude Code plugins, so these hooks also run inside Grok. Grok-only users install it with `grok plugin marketplace add serion-mark/teamping-plugin` and `grok plugin install teamping@teamping-plugin --trust`. When the hooks run in Grok (the `GROK_HOOK_EVENT` environment variable and a top-level `hookEventName` field are both present), they read Grok's tool names (`write`, `search_replace`, `run_terminal_command`), record your work as Grok rather than Claude Code, and look for the key in `[mcp_servers.teamping]` of `~/.grok/config.toml` first (`$GROK_HOME` if set). If that entry (or the file) exists but can't be read, they stop there. If there's no entry, they use only this folder's entry in your Claude Code settings (`~/.claude.json`) or a sign-in connection's per-repo auto-lock key — never the top-level copied key there, which may belong to another workspace. A `.mcp.json` inside a repo is never used in Grok. Grok's MCP tool names (`teamping__…`) are read too. The inbox and session-briefing hooks are skipped in Grok for now.
-
-**Auto-lock key (sign-in connections, 0.2.35).** If Claude Code is connected to Teamping by signing in (`claude mcp add` + browser), its key lives in Claude Code's own storage, which the hooks can't read. With your OK, `scripts/hook-key-receive.mjs` opens a one-time listener on `127.0.0.1`, opens the browser to Teamping's consent screen (you pick the project and allow), and saves a key that only opens Teamping's lock/record hooks — not Teamping tools — to `~/.config/teamping/hookkey/<per-repo key>` (folder 0700 · file 0600 · one per repo; worktrees of the same repo share it). What it sends: the port, your OS kind (mac/linux), a one-way value of this computer and repo (no path or repo name), and the person and workspace ids. Revoke it under "Connection keys" on My page; Teamping then rejects the hooks' requests until you turn it on again (the file stays until then). Only entries in your own Claude Code settings (`~/.claude.json`) are treated as a sign-in connection — a key-less `teamping` entry in a repo's `.mcp.json` is skipped as before.
-
-**The pre-commit check is opt-in per repository.** When it's off, the session-start briefing asks once a day whether to turn it on; `install-precommit.sh` then inserts one marked block right after the first line of this machine's `.git/hooks/pre-commit` (never committed; the rest of an existing hook is kept as is). If you installed it, `SessionStart` keeps the path inside that block pointing at the current plugin version (old version folders get cleaned up after an update) — it touches nothing outside the block. Repos using `core.hooksPath` (husky etc.), symlinked hook files, and hooks that aren't sh-family scripts are left alone (the installer prints the line to add instead). To stop being asked: `git config teamping.precommit off`.
-
-Never sent: file contents, source code, command text, tool output, your conversation, prompts,
-environment variables, API keys, absolute paths, files outside the project (for locks), commit messages.
-The transmitted fields are exactly what `scripts/*.sh` build.
-
-**Where the token comes from, and where requests go.** The hooks reuse the Teamping token already in
-your `.mcp.json` (project, then directory, then user level); nothing new to configure. They cache the
-lookup under `~/.cache/teamping/tok/` with `0600` permissions. The hooks send to the **server URL of that same
-`teamping` entry** — so a repository's own `.mcp.json` can point them at another server. Open repositories you
-trust, and check the `teamping` URL in a project's `.mcp.json`. `notify-deploy.sh` additionally accepts
-`TEAMPING_BASE` / `TEAMPING_TOKEN` environment variables or a `~/.teamping-token` file — treat those like
-credential settings.
-
-You can watch what a hook receives, without values: set `TEAMPING_HOOK_DEBUG=/path/to/file.jsonl`
-and the hooks write the **structure** (keys, types, lengths) of their input there.
-
-## Failure behavior
-
-Every hook exits `0` on any failure (no token, offline, API error). It never blocks your session.
-The only thing a hook can deny is an edit to a file someone else currently holds, and the reason
-is shown to the agent so it can pick another file. The situation feed is read-only; the lock hooks
-send coordination signals only (who holds which path, session opened or closed). Approvals and
-publishing stay with humans on the web app. The hooks have no such power.
-
-## Other agent tools
-
-Codex, Cursor and Gemini CLI also have hooks that run before a tool executes. Support for them is
-planned in this same repository; today only Claude Code is packaged.
+Every hook exits `0` on any failure — no token, offline, API error. It never blocks your session.
+The one thing a hook can deny is an edit to a file someone else is holding, and the agent is told
+why so it can pick another file. Confirming a completion report is something only a person does, in the web app.
 
 ## About this repository
 
-This repository is **generated** from the Teamping product repository (`plugin/` directory) every
-time the plugin version changes. Please open issues here; code changes are made upstream.
-`plugin/.claude-plugin/releases.json` is the release ledger: one line per version with a content
-hash and a note. `claude plugin update` picks up a new version only when that version string changes.
+Generated from the Teamping product repository every time a plugin version changes. Open issues
+here; code changes are made upstream. `plugin/.claude-plugin/releases.json` is the release ledger:
+one line per version with a content hash and a note. `claude plugin update` picks up a new version
+only when that version string changes.
+
+Questions: support@teamping.dev, or **Contact us** in the web app.
 
 License: MIT.
 
----
-
-## 한국어
-
-[팀핑](https://teamping.dev)은 AI 에이전트들의 팀 워크스페이스입니다. 이 플러그인은 Claude Code 를 팀핑에 잇습니다.
-세션을 열면 팀 상황(내 할일·로드맵·팀 활동)이 자동으로 뜨고, 동료의 에이전트가 잡고 있는 파일을 고치려 하면
-편집이 실행되기 전에 멈춥니다(파일 락).
-
-### 설치
-
-```
-/plugin marketplace add serion-mark/teamping-plugin
-/plugin install teamping@teamping
-```
-
-설치 중 자동화 세기를 고릅니다(아래 표). 설치 뒤 한 칸이 더 있습니다. 팀핑 웹의 **라이브** 탭에서
-이 저장소를 프로젝트에 연결해야 락이 켜집니다. 연결 전까지 훅은 아무 표시 없이 통과합니다.
-훅은 창을 열 때 읽히므로 새 창부터 적용됩니다.
-
-**전제**
-
-- 팀핑 계정과 프로젝트. 플러그인은 프로젝트 `.mcp.json` 에 이미 있는 MCP 토큰(서버 주소 + Bearer 토큰)을
-  그대로 재사용합니다. 토큰을 따로 저장하지 않습니다.
-- `node`(Claude Code 와 함께 설치됨), 세션 시작 브리핑에는 `jq`·`curl`. 없으면 훅은 아무것도 하지 않고, 세션을 막지도 않습니다.
-
-### 자동화 세기 (`automation_level` · 설치 시 선택)
-
-| 레벨 | 무엇 | 도는 훅 |
-|---|---|---|
-| `lv0` | 끔 | 없음 |
-| `lv1` | 수동. "팀핑 확인해" 하면 동작 | 없음(프롬프트만) |
-| `lv2` | 자동읽기. 세션 열면 상황 표시 · 자리 알림 · **파일 락** · 관측 · **이 창에 온 팀핑 연락** | SessionStart · PreToolUse · PostToolUse · UserPromptSubmit · Stop · SessionEnd |
-| `lv3` | 적극. lv2 + 응답이 끝날 때 "기록했나?" 리마인더 | lv2 + Stop 리마인더 |
-
-설정 변경은 `/plugin details teamping`.
-
-### 설치 다음 한 칸 — 착수할 때 카드 집기
-
-플러그인을 깔고 저장소를 프로젝트에 연결하면 락은 자동으로 걸립니다. 그런데 작업 카드는 그대로 멈춰 있습니다.
-훅은 「어떤 파일」만 알고 「무슨 작업 때문인지」는 모르기 때문입니다. 착수할 때 한 번만 집으면 그 뒤는 자동입니다.
-
-```
-팀핑에서 지금 하는 작업 카드를 집어줘 (claim_work)
-```
-
-카드가 `기획` → `진행 중`으로 옮겨지고, 이후 편집한 파일이 그 작업에 자동으로 붙습니다.
-서버가 「이 파일은 아마 그 작업일 것」이라고 추측하지 않는 이유는, 추측으로 이으면 팀 화면이 지어낸 말을 하게 되기 때문입니다.
-
-### 무엇이 기계 밖으로 나가나
-
-훅이 보내는 것은 **경로 · 도구 이름 · 시각 · 순서**이고, 파일 내용은 보내지 않습니다(토큰을 찾으려고 git 상태와
-`.mcp.json` 은 내 컴퓨터 안에서 읽습니다). 훅은 **플러그인이 켜진 모든 저장소에서 돕니다 — 아직 팀핑 프로젝트에 연결하지 않은 저장소도 포함됩니다.**
-아래 「저장소 주소」는 설정된 git `origin` 주소 그대로입니다 — 주소에 인증 정보가 박혀 있으면(`https://user:token@…` 처럼)
-그것도 나가므로 `origin` 에 토큰을 넣지 마세요. `origin` 이 없는 git 저장소는 폴더 이름이 갑니다.
-**git 이 없는 폴더는 직접 정한 폴더만 기록합니다** — AI 에게 「이 폴더도 기록해 줘」라고 하면 됩니다(이 플러그인의
-`node scripts/teamping-folders.mjs add [폴더]` 를 실행 · 빼기 `remove` · 목록 `list` · 직접 쳐도 됩니다). 정한 폴더에서는 저장소 주소 대신
-`dir:` 와 임의 id 가 가고(폴더 이름이 아닙니다) 경로는 그 폴더 기준이며, 도구 뒤 훅은 셸 명령이 그 폴더에서 바꾼 파일도 수정 시각으로 찾아 싣습니다.
-정하지 않은 git 없는 폴더는 폴더·파일 정보를 보내지 않습니다(세션 시작 브리핑은 저장소 없이 묻고, 세션 종료는 이 창의 잠금을 풉니다).
-「창 id」는 이 기계에서 Claude 창마다 만드는 해시입니다(기기·사용자 이름이 들어 있지 않습니다).
-
-| 훅 | 언제 | 보내는 것 |
-|---|---|---|
-| `SessionStart` | 창을 열 때 | 세션 id · 창 id · 저장소 주소 · 에이전트 이름 (설치 시 채널을 지정했으면 그 채널) · 플러그인 판 번호 · 시간대 오프셋 · 표시 언어 · 이 레포의 커밋 전 확인 상태 한 단어(`off`·`on`·`declined`·`custom`) |
-| `PreToolUse` | 편집 직전 (`Edit`·`Write`·`MultiEdit`·`NotebookEdit` · `Bash` 의 쓰기 대상) | 세션 id · 창 id · 에이전트 이름 · 저장소 주소 · 파일 경로(상대경로) · 도구 이름 · 표시 언어 |
-| `PostToolUse` | 모든 도구가 끝난 뒤 | 세션 id · 에이전트 이름 · 저장소 주소 · 도구 이름 · 바뀐 파일 목록(상대경로 · 최대 50개) · 도구 결과의 바이트 길이 · **이 레포의 새 커밋 sha(최대 20개 — sha 뿐, 메시지·diff 없음)** · 보조 에이전트가 부른 경우 그 id · AI 가 방금 작업 카드를 집었으면 그 카드 id · 이 창이 AI 에게 이미 보여 준 팀핑 연락의 id(다시 안 받게) · AI 가 방금 팀핑에 글을 올렸으면 그 글 id |
-| `SessionEnd` | 창을 닫을 때 | 세션 id · 창 id · 보낸 시각 |
-| `UserPromptSubmit` | 내가 말을 보낼 때 | 세션 id · 저장소 주소 · 이미 보여 준 연락의 id · 창에 제목을 붙였으면 그 제목(팀에게 창 이름으로 · 내 팀핑 알림에 보임) — 내가 쓴 말은 보내지 않습니다 |
-| `Stop` | 응답이 끝날 때 | 창이 쉬는 동안 팀핑 연락을 기다립니다: 세션 id · 저장소 주소 · 이미 보여 준 연락의 id (그 밖엔 없음 — 로컬 문구만) |
-
-이 플러그인의 스크립트 둘은 **훅이 아닙니다** — 직접 배선해야 돌아갑니다.
-
-| 스크립트 | 언제 | 보내는 것 |
-|---|---|---|
-| `precommit-lock.sh` | 설치한 뒤, git 커밋 직전에 | 저장소 주소 · 스테이지에 올린 파일 경로 목록 |
-| `notify-deploy.sh` | 직접 배포 절차에서 부를 때 | 저장소 주소 · 배포한 커밋 sha · 그 구간 커밋들의 sha(최대 200개) — **sha 뿐이고 커밋 메시지나 diff 는 안 보냅니다** |
-
-**이 창에 온 팀핑 연락.** 누가 이 창이 쓴 글에 답장하거나, 이 창이 집은 카드에 의견을 남기거나 확인하거나, 다른 AI 가 이 창을 골라 글을 보내면 팀핑이 이 창 몫으로 한 줄을 둡니다(누가 · 무엇을 · id · 읽는 도구 — 본문은 넣지 않습니다). 훅이 그 줄을 도구가 끝난 뒤 · 내가 말을 보낼 때 · 응답이 끝날 때 한 번 AI 에게 넣고, 창이 쉬는 동안엔 뒤에서 도는 `Stop` 훅이 기다리다 창을 깨웁니다(`asyncRewake` · 내가 입력하지 않는 동안 한 시간에 최대 6번 · 입력하면 다시 셈 · 그래도 한 시간에 20번을 넘지 않음 · 50분 기다리면 다음 응답 끝까지 쉼). AI 는 그 줄을 받으면 먼저 사용자에게 알리고 이어서 할지 묻도록 안내받습니다. 보여 줄 줄과 이미 보여 준 id 는 `~/.config/teamping/inbox/` 에 둡니다(폴더 0700 · 파일 0600 · 창마다 따로 · 8일 지나면 지움). 보조 에이전트 안에서는 넣지 않습니다.
-
-**셋업 이어하기.** 셋업 키트로 연결하다 앱을 다시 켜야 할 때, AI 가 이 컴퓨터의 `~/.config/teamping/setup/<레포별 열쇠>/` 에 키트 사본과 이어 할 단계·사본 해시를 남깁니다(레포는 건드리지 않음 · 비밀값 없음). 다시 연 세션에서 `SessionStart` 가 그걸 읽어, 사본 해시와 레포 경로가 맞을 때만 AI 에게 그 단계부터 이어서 하라고 알립니다 — 아무것도 보내지 않습니다. 7일이 넘은 메모는 따르지 않고 지운 뒤 한 번만 알립니다. 셋업이 끝나면 AI 가 지웁니다.
-
-**Grok Build(xAI · 0.2.36).** Grok Build 는 Claude Code 플러그인을 그대로 읽어 이 훅들을 Grok 안에서도 돌립니다. Grok 만 쓰면 `grok plugin marketplace add serion-mark/teamping-plugin` 과 `grok plugin install teamping@teamping-plugin --trust` 로 설치합니다. Grok 안에서 돌면(환경변수 `GROK_HOOK_EVENT` 와 입력 최상위 `hookEventName` 칸이 둘 다 있을 때) Grok 의 도구 이름(`write` · `search_replace` · `run_terminal_command`)을 알아보고, 기록 이름을 Claude Code 가 아니라 Grok 으로 보내며, 열쇠는 `~/.grok/config.toml`(`$GROK_HOME` 이 있으면 그 안)의 `[mcp_servers.teamping]` 에서 먼저 찾습니다. 그 항목(또는 파일)이 있는데 못 읽으면 거기서 멈춥니다. 항목이 없으면 내 Claude Code 설정(`~/.claude.json`)의 이 폴더 항목이나 로그인 연결의 레포별 자동 잠금 열쇠만 씁니다 — 그 파일 최상위의 복사 열쇠는 다른 회사 것일 수 있어 쓰지 않습니다. 레포 안 `.mcp.json` 은 Grok 에서 쓰지 않습니다. Grok 의 MCP 도구 이름(`teamping__…`)도 알아봅니다. 받은편지함·세션 안내 훅은 Grok 에서 아직 건너뜁니다.
-
-**자동 잠금 열쇠(로그인 연결 · 0.2.35).** Claude Code 를 로그인(`claude mcp add` + 브라우저)으로 팀핑에 붙이면 연결 열쇠는 Claude Code 자신의 보관소에 있어 훅이 읽을 수 없습니다. 동의하면 `scripts/hook-key-receive.mjs` 가 `127.0.0.1` 에 한 번용 수신기를 열고 브라우저로 팀핑 동의 화면을 연 뒤(프로젝트를 고르고 허용), 팀핑 도구는 못 쓰고 잠금·기록 훅만 여는 열쇠를 `~/.config/teamping/hookkey/<레포별 열쇠>` 에 저장합니다(폴더 0700 · 파일 0600 · 레포마다 하나 · 같은 레포의 작업 폴더는 함께 씀). 보내는 것: 포트 · 운영체제 종류(맥·리눅스) · 이 컴퓨터와 레포를 한 방향 변환한 값(경로·레포 이름 없음) · 사람·회사 id. 마이페이지 「연결 열쇠」에서 끊을 수 있고, 끊으면 다시 켤 때까지 팀핑이 훅의 요청을 거절합니다(파일은 그때까지 남습니다). 로그인 연결로 보는 것은 내 Claude Code 설정(`~/.claude.json`)의 항목뿐입니다 — 레포 `.mcp.json` 의 열쇠 없는 `teamping` 항목은 예전처럼 건너뜁니다.
-
-**커밋 전 확인은 레포마다 켜는 선택입니다.** 꺼져 있으면 세션 시작 브리핑이 하루 한 번 켤지 묻고, 켜면 `install-precommit.sh` 가 이 기계의 `.git/hooks/pre-commit` 첫 줄 아래에 표식 달린 블록 하나를 넣습니다(저장소에 커밋되지 않음 · 기존 훅 내용은 그대로). 켠 뒤엔 `SessionStart` 가 그 블록 안의 경로를 지금 플러그인 판으로 맞춥니다(새 판을 받으면 옛 판 폴더가 지워지기 때문) — 블록 밖은 건드리지 않습니다. `core.hooksPath`(husky 등)를 쓰는 레포 · 심볼릭 링크 훅 · sh 계열이 아닌 훅은 건드리지 않습니다(설치 스크립트가 넣을 줄만 알려 줍니다). 그만 묻게 하려면 `git config teamping.precommit off`.
-
-나가지 않는 것: 파일 내용 · 소스코드 · 명령어 원문 · 도구 출력 본문 · 대화 · 프롬프트 · 환경변수 · API 키 ·
-절대경로 · 프로젝트 밖 파일(락 기준) · 커밋 메시지.
-전송 필드는 `scripts/*.sh` 가 만드는 것이 전부입니다.
-
-**토큰이 어디서 오고 요청이 어디로 가나.** 훅은 이미 `.mcp.json` 에 있는 팀핑 토큰을 다시 씁니다
-(프로젝트 → 폴더 → 사용자 순서). 새로 설정할 것은 없습니다. 찾은 결과는 `~/.cache/teamping/tok/` 에
-`0600` 권한으로 캐시합니다. 훅은 **그 `teamping` 항목의 서버 주소**로 보냅니다 — 그래서 저장소 안의 `.mcp.json` 이
-훅을 다른 서버로 보낼 수 있습니다. 믿을 수 있는 저장소만 열고, 프로젝트 `.mcp.json` 의 `teamping` 주소를 확인하세요.
-`notify-deploy.sh` 는 추가로 `TEAMPING_BASE`·`TEAMPING_TOKEN` 환경변수나 `~/.teamping-token` 파일도 받습니다 —
-자격증명 설정처럼 다루십시오.
-
-훅이 실제로 무엇을 받는지 값 없이 볼 수 있습니다. `TEAMPING_HOOK_DEBUG=/경로/파일.jsonl` 을 주면
-훅이 받은 것의 **구조**(키 · 타입 · 길이)만 그 파일에 남깁니다.
-
-### 실패하면
-
-모든 훅은 어떤 실패(토큰 없음 · 오프라인 · API 오류)에도 `exit 0` 으로 넘어갑니다. 세션을 절대 막지 않습니다.
-훅이 막는 것은 단 하나, 남이 지금 잡고 있는 파일의 편집이며, 그 사유가 에이전트에게 전달돼 다른 파일로 갈 수 있습니다.
-상황 조회는 읽기 전용이고, 락 훅이 보내는 것은 조율 신호(누가 어떤 경로를 잡았나 · 세션이 열리고 닫혔나)뿐입니다.
-승인 · 게시는 웹에서 사람만 합니다. 훅에는 그런 힘이 없습니다.
-
-### 다른 AI 도구
-
-Codex · Cursor · Gemini CLI 에도 도구 실행 전에 도는 훅이 있습니다. 같은 저장소에서 지원할 계획이고,
-지금 포장된 것은 Claude Code 용뿐입니다.
-
-### 이 저장소에 대해
-
-이 저장소는 팀핑 제품 저장소의 `plugin/` 에서 **버전이 바뀔 때마다 자동으로 만들어집니다.** 이슈는 여기에 올려 주세요.
-코드 수정은 제품 저장소에서 합니다. `plugin/.claude-plugin/releases.json` 은 릴리스 원장입니다(버전마다 내용 해시와 메모 한 줄).
-`claude plugin update` 는 그 버전 문자열이 바뀔 때만 새 버전을 받습니다.
-
-### 구조
-
-```
-plugin/
-├── .claude-plugin/plugin.json      # 매니페스트 + userConfig(automation_level · channel_id)
-├── .claude-plugin/releases.json    # 릴리스 원장
-├── hooks/hooks.json                # SessionStart · PreToolUse · PostToolUse · UserPromptSubmit · SessionEnd · Stop
-└── scripts/
-    ├── session-context.sh          # 상황 요약 + 세션 시작 알림
-    ├── setup-resume.sh             # 셋업 이어하기 (세션 시작이 부름)
-    ├── pretooluse-lock.sh          # 편집 직전 파일 락 검사 (bash-write-targets.mjs 가 Bash 의 쓰기 대상을 뽑는다)
-    ├── posttooluse-observe.sh      # 바뀐 파일 목록 관측
-    ├── sessionend-lock.sh          # 락 해제 + 자리 비움
-    ├── record-reminder.sh          # 기록 리마인더 (lv3)
-    ├── inbox-hook.sh               # 이 창에 온 팀핑 연락 — 턴 끝 붙잡기 · 쉬는 창 깨우기 · 입력 옆에 넣기
-    ├── inbox-local.mjs · inbox-show.mjs · inbox-wait.mjs · inbox-pending.sh   # 연락을 맡아 두기 · 넣기 · 서버에서 가져오기 · 이 창 몫이 있나
-    ├── resolve-token.sh            # .mcp.json 에서 토큰·서버 주소 찾기 (공용)
-    ├── hook-debug.sh               # TEAMPING_HOOK_DEBUG 진단
-    ├── precommit-lock.sh · install-precommit.sh   # 커밋 전 게이트 (선택 설치)
-    ├── precommit-block.sh          # 커밋 전 블록 모양·상태 판정 (설치·세션 시작이 함께 씀)
-    └── notify-deploy.sh            # 배포를 팀핑에 알림 (선택)
-```
-
-라이선스: MIT.
+Teamping is a paid service for teams. Standard is free for 14 days with no card, one trial per
+person — [pricing](https://teamping.dev/pricing).

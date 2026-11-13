@@ -185,6 +185,11 @@
       "version": "0.2.36",
       "sha256": "8b5c53a9b7ca847248d8b81799b88285e9d4285f7768e68565774cb2d9767994",
       "note": "Grok Build(xAI)가 이 플러그인의 훅을 돌릴 때(Grok 은 Claude Code 플러그인을 그대로 읽는다) Grok 의 도구 이름(write·search_replace·run_terminal_command)을 알아보고, 잠금 기록 이름을 grok 으로 보내며, 열쇠는 Grok 설정(~/.grok/config.toml)에서 먼저 찾고(그 항목이 있는데 못 읽으면 멈춘다 · 없으면 ~/.claude.json 의 이 폴더 항목·로그인 연결만(최상위 복사 열쇠는 Grok 에서 안 쓴다) · 레포 .mcp.json 은 Grok 에서 안 믿는다), Grok 의 MCP 도구 이름(teamping__…)도 알아본다. 판정은 환경(GROK_HOOK_EVENT)과 입력 최상위 hookEventName 이 둘 다 있을 때만. 받은편지함·세션 안내 훅은 Grok 에서 아직 재지 않아 건너뛴다."
+    },
+    {
+      "version": "0.2.37",
+      "sha256": "1b7f12c2a53353315faef3c2151e0aee05d6820b711d45825d387414d53987a3",
+      "note": "공개 저장소 첫 화면을 다시 썼다 — 틀린 문장(「Codex·Cursor 는 계획 중」)을 지우고 도구별 설치 표를 올렸다(Codex 자동 잠금은 고객 배포 게이트 전이라 「준비 중」). 한국어는 README.ko.md 로, 보내는 항목 전부는 DATA.md·DATA.ko.md 로 나눴다(항목은 그대로 · 내부 이름만 사람 말로). 로고를 더했다. 훅 동작은 바뀌지 않았다."
     }
   ]
 }
